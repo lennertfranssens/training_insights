@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: traininginsights
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks: [ti]
+
+  backend:
+    build:
+      context: ./traininginsights-backend
+      dockerfile: Dockerfile
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: traininginsights
+      DB_USER: postgres
+      DB_PASS: postgres
+      TI_JWT_SECRET: "change-this-to-a-long-secret-or-base64"  # now tolerant
+      SPRING_PROFILES_ACTIVE: docker
+      # No server.servlet.context-path set
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks: [ti]
+
+  frontend:
+    build:
+      context: ./traininginsights-frontend
+    environment:
+      # Optional: override base if you ever front a different path
+      VITE_API_BASE: /api
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    networks: [ti]
+
+volumes:
+  pgdata:
+
+networks:
+  ti:

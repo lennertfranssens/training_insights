@@ -1,0 +1,64 @@
+package com.traininginsights.model;
+
+import jakarta.persistence.*;
+
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
+
+@Entity
+@Table(name = "trainings")
+public class Training {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false)
+    private String title;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    @Column(nullable = false)
+    private Instant trainingTime;
+
+    private boolean isVisibleToAthletes = true;
+
+    @ManyToMany
+    @JoinTable(name = "training_groups",
+            joinColumns = @JoinColumn(name = "training_id"),
+            inverseJoinColumns = @JoinColumn(name = "group_id"))
+    private Set<Group> groups = new HashSet<>();
+
+    @ManyToOne
+    @JoinColumn(name = "pre_questionnaire_id")
+    private Questionnaire preQuestionnaire;
+
+    @ManyToOne
+    @JoinColumn(name = "post_questionnaire_id")
+    private Questionnaire postQuestionnaire;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public Instant getTrainingTime() { return trainingTime; }
+    public void setTrainingTime(Instant trainingTime) { this.trainingTime = trainingTime; }
+
+    public boolean isVisibleToAthletes() { return isVisibleToAthletes; }
+    public void setVisibleToAthletes(boolean visibleToAthletes) { isVisibleToAthletes = visibleToAthletes; }
+
+    public Set<Group> getGroups() { return groups; }
+    public void setGroups(Set<Group> groups) { this.groups = groups; }
+
+    public Questionnaire getPreQuestionnaire() { return preQuestionnaire; }
+    public void setPreQuestionnaire(Questionnaire preQuestionnaire) { this.preQuestionnaire = preQuestionnaire; }
+
+    public Questionnaire getPostQuestionnaire() { return postQuestionnaire; }
+    public void setPostQuestionnaire(Questionnaire postQuestionnaire) { this.postQuestionnaire = postQuestionnaire; }
+}

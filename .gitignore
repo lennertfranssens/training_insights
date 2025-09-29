@@ -1,0 +1,100 @@
+# ---- OS / Editor junk -------------------------------------------------------
+.DS_Store
+Thumbs.db
+Icon?
+._*
+*.swp
+*~
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# ---- Git / coverage / logs --------------------------------------------------
+*.log
+logs/
+log/
+coverage/
+*.lcov
+
+# ---- Env & secrets (keep examples) -----------------------------------------
+.env
+.env.*.local
+*.env
+!.env.example
+*.secret
+*.secrets
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+# ---- Docker / local data ----------------------------------------------------
+.docker/
+docker-data/
+pgdata/
+db-data/
+data/
+*.pid
+*.pid.lock
+
+# ---- Java / Maven (backend) -------------------------------------------------
+target/
+**/target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+# (Keep the Maven wrapper)
+!/.mvn/wrapper/maven-wrapper.jar
+
+# Spring local configs (commit your non-local profiles)
+application-local.yml
+application-local.properties
+application-*.secrets.*
+bootstrap-local.yml
+bootstrap-local.properties
+
+# ---- Node / Frontend (React + Vite) ----------------------------------------
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+.vite/
+.cache/
+.eslintcache
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Test / tooling artifacts ----------------------------------------------
+.jacoco/
+.sonar/
+.snyk
+.nyc_output/
+
+# ---- Nginx temp (if generated locally) -------------------------------------
+nginx/client_body_temp/
+nginx/proxy_temp/
+nginx/fastcgi_temp/
+nginx/uwsgi_temp/
+nginx/scgi_temp/
+
+# ---- OS-specific ------------------------------------------------------------
+# macOS:
+.AppleDouble
+.LSOverride
+.Trashes
+.Spotlight-V100
+.fseventsd

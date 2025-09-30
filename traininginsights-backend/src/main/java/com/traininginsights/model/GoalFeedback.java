@@ -1,0 +1,41 @@
+package com.traininginsights.model;
+
+import jakarta.persistence.*;
+
+import java.time.Instant;
+
+@Entity
+@Table(name = "goal_feedbacks")
+public class GoalFeedback {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne
+    @JoinColumn(name = "goal_id")
+    private Goal goal;
+
+    @ManyToOne
+    @JoinColumn(name = "trainer_id")
+    private User trainer;
+
+    @Column(columnDefinition = "TEXT")
+    private String comment;
+
+    private Instant createdAt = Instant.now();
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public Goal getGoal() { return goal; }
+    public void setGoal(Goal goal) { this.goal = goal; }
+
+    public User getTrainer() { return trainer; }
+    public void setTrainer(User trainer) { this.trainer = trainer; }
+
+    public String getComment() { return comment; }
+    public void setComment(String comment) { this.comment = comment; }
+
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+}

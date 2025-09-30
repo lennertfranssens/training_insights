@@ -20,6 +20,18 @@ public class Group {
     @JsonIgnore
     private Set<User> athletes = new HashSet<>();
 
+    @ManyToMany
+    @JoinTable(name = "group_clubs",
+        joinColumns = @JoinColumn(name = "group_id"),
+        inverseJoinColumns = @JoinColumn(name = "club_id"))
+    private Set<Club> clubs = new HashSet<>();
+
+    @ManyToMany
+    @JoinTable(name = "group_trainers",
+        joinColumns = @JoinColumn(name = "group_id"),
+        inverseJoinColumns = @JoinColumn(name = "user_id"))
+    private Set<User> trainers = new HashSet<>();
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -28,4 +40,10 @@ public class Group {
 
     public Set<User> getAthletes() { return athletes; }
     public void setAthletes(Set<User> athletes) { this.athletes = athletes; }
+
+    public Set<Club> getClubs() { return clubs; }
+    public void setClubs(Set<Club> clubs) { this.clubs = clubs; }
+
+    public Set<User> getTrainers() { return trainers; }
+    public void setTrainers(Set<User> trainers) { this.trainers = trainers; }
 }

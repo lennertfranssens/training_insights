@@ -1,16 +1,34 @@
 import React, { useEffect, useState } from 'react'
 import { Tabs, Tab, Box, Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material'
 import UsersPage from '../pages/UsersPage'
+import AdminBackupPage from '../pages/AdminBackupPage'
 import api from '../api/client'
 export default function SuperAdminDashboard(){
   const [tab, setTab] = useState(0)
+  React.useEffect(()=>{
+    const handler = (e) => {
+      const s = e?.detail?.section
+      if (!s) return
+      if (s === 'clubs') setTab(0)
+      if (s === 'admins' || s === 'users') setTab(1)
+      if (s === 'notifications') setTab(2)
+      if (s === 'backup') setTab(2)
+    }
+    window.addEventListener('navigate-dashboard', handler)
+    return () => window.removeEventListener('navigate-dashboard', handler)
+  },[])
   return (
     <Box>
-      <Tabs value={tab} onChange={(e,v)=>setTab(v)} sx={{ mb:2 }}>
-        <Tab label="Clubs" /><Tab label="Admins" />
-      </Tabs>
+      <Paper sx={{ p:1, mb:2 }}>
+        <Tabs value={tab} onChange={(e,v)=>setTab(v)}>
+          <Tab label="Clubs" />
+          <Tab label="Admins" />
+          <Tab label="Backup" />
+        </Tabs>
+      </Paper>
       {tab===0 && <ClubsPage />}
       {tab===1 && <UsersPage title="Admins" defaultRole="ROLE_ADMIN" />}
+      {tab===2 && <AdminBackupPage />}
     </Box>
   )
 }

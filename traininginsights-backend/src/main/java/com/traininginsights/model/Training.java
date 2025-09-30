@@ -22,6 +22,9 @@ public class Training {
     @Column(nullable = false)
     private Instant trainingTime;
 
+    @Column(name = "training_end_time")
+    private Instant trainingEndTime;
+
     private boolean isVisibleToAthletes = true;
 
     @ManyToMany
@@ -50,6 +53,9 @@ public class Training {
     public Instant getTrainingTime() { return trainingTime; }
     public void setTrainingTime(Instant trainingTime) { this.trainingTime = trainingTime; }
 
+    public Instant getTrainingEndTime() { return trainingEndTime; }
+    public void setTrainingEndTime(Instant trainingEndTime) { this.trainingEndTime = trainingEndTime; }
+
     public boolean isVisibleToAthletes() { return isVisibleToAthletes; }
     public void setVisibleToAthletes(boolean visibleToAthletes) { isVisibleToAthletes = visibleToAthletes; }
 
@@ -61,4 +67,15 @@ public class Training {
 
     public Questionnaire getPostQuestionnaire() { return postQuestionnaire; }
     public void setPostQuestionnaire(Questionnaire postQuestionnaire) { this.postQuestionnaire = postQuestionnaire; }
+
+    @Column(name = "pre_notification_minutes")
+    private Integer preNotificationMinutes = 0;
+
+    public Integer getPreNotificationMinutes() { return preNotificationMinutes; }
+    public void setPreNotificationMinutes(Integer preNotificationMinutes) { this.preNotificationMinutes = preNotificationMinutes; }
+
+    private Instant notificationTime;
+
+    public Instant getNotificationTime() { return notificationTime; }
+    public void setNotificationTime(Instant notificationTime) { this.notificationTime = notificationTime; }
 }

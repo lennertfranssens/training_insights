@@ -11,7 +11,6 @@ import java.util.List;
 
 public interface TrainingRepository extends JpaRepository<Training, Long> {
 
-    @Query("select t from Training t join t.groups g " +
-            "where g = :group and t.trainingTime >= :from and t.isVisibleToAthletes = true order by t.trainingTime asc")
+    @Query("select t from Training t join t.groups g where g = :group and t.trainingTime >= :from order by t.trainingTime asc")
     List<Training> findUpcomingForGroup(@Param("group") Group group, @Param("from") Instant from);
 }

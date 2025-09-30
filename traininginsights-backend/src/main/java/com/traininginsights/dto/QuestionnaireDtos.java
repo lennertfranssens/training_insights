@@ -6,5 +6,6 @@ public class QuestionnaireDtos {
         public String title;
         public String structure;
         public Long creatorId;
+        public Boolean daily;
     }
 }

@@ -13,4 +13,5 @@ public interface QuestionnaireResponseRepository extends JpaRepository<Questionn
     Optional<QuestionnaireResponse> findByUserAndTrainingAndQuestionnaire(User user, Training training, Questionnaire questionnaire);
     List<QuestionnaireResponse> findByTraining(Training training);
     List<QuestionnaireResponse> findByUser(User user);
+    List<QuestionnaireResponse> findByQuestionnaire(Questionnaire questionnaire);
 }

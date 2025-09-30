@@ -2,6 +2,7 @@ package com.traininginsights.service;
 
 import com.traininginsights.model.*;
 import com.traininginsights.repository.GroupRepository;
+import com.traininginsights.repository.ClubRepository;
 import com.traininginsights.repository.RoleRepository;
 import com.traininginsights.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -11,16 +12,19 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Arrays;
+import java.util.HashSet;
 
 @Service
 public class UserService {
     private final UserRepository userRepo;
     private final RoleRepository roleRepo;
     private final GroupRepository groupRepo;
+    private final ClubRepository clubRepo;
     private final PasswordEncoder encoder;
 
-    public UserService(UserRepository userRepo, RoleRepository roleRepo, GroupRepository groupRepo, PasswordEncoder encoder) {
-        this.userRepo = userRepo; this.roleRepo = roleRepo; this.groupRepo = groupRepo; this.encoder = encoder;
+    public UserService(UserRepository userRepo, RoleRepository roleRepo, GroupRepository groupRepo, ClubRepository clubRepo, PasswordEncoder encoder) {
+        this.userRepo = userRepo; this.roleRepo = roleRepo; this.groupRepo = groupRepo; this.clubRepo = clubRepo; this.encoder = encoder;
     }
 
     public Optional<User> findByEmail(String email){ return userRepo.findByEmailIgnoreCase(email); }
@@ -42,6 +46,7 @@ public class UserService {
             Group g = groupRepo.findById(groupId).orElseThrow();
             u.setGroupEntity(g);
         }
+        // clubs will be set by controller via setClubs after validation if needed
         Set<Role> roleEntities = roles.stream()
                 .map(rn -> roleRepo.findByName(rn).orElseThrow())
                 .collect(Collectors.toSet());
@@ -71,9 +76,34 @@ public class UserService {
             Object gid = patch.get("groupId");
             if (gid != null) {
                 Long groupId = Long.valueOf(gid.toString());
-                u.setGroupEntity(groupRepo.findById(groupId).orElse(null));
+                Group g = groupRepo.findById(groupId).orElse(null);
+                if (g != null) {
+                    // ensure user's clubs intersect with group's clubs
+                    Set<Long> userClubIds = u.getClubs().stream().map(c->c.getId()).collect(Collectors.toSet());
+                    boolean ok = g.getClubs().stream().anyMatch(c->userClubIds.contains(c.getId()));
+                    if (!ok) throw new IllegalArgumentException("User must belong to at least one club assigned to the group");
+                }
+                u.setGroupEntity(g);
             } else {
                 u.setGroupEntity(null);
+            }
+        }
+        if (patch.containsKey("clubIds")) {
+            Object obj = patch.get("clubIds");
+            if (obj == null) {
+                u.setClubs(new HashSet<>());
+            } else if (obj instanceof Long[]) {
+                Long[] arr = (Long[]) obj;
+                Set<com.traininginsights.model.Club> clubs = Arrays.stream(arr)
+                        .map(i -> clubRepo.findById(i).orElseThrow())
+                        .collect(Collectors.toSet());
+                u.setClubs(clubs);
+            } else if (obj instanceof java.util.List) {
+                java.util.List<?> list = (java.util.List<?>) obj;
+                Set<com.traininginsights.model.Club> clubs = list.stream()
+                        .map(i -> clubRepo.findById(Long.valueOf(i.toString())).orElseThrow())
+                        .collect(Collectors.toSet());
+                u.setClubs(clubs);
             }
         }
         if (patch.containsKey("roleNames")) {
@@ -90,6 +120,15 @@ public class UserService {
             if (newPass != null && !newPass.isBlank()) {
                 u.setPasswordHash(encoder.encode(newPass));
             }
+        }
+        if (patch.containsKey("phone")) {
+            u.setPhone((String) patch.get("phone"));
+        }
+        if (patch.containsKey("address")) {
+            u.setAddress((String) patch.get("address"));
+        }
+        if (patch.containsKey("dailyReminderTime")) {
+            u.setDailyReminderTime((String) patch.get("dailyReminderTime"));
         }
         return userRepo.save(u);
     }

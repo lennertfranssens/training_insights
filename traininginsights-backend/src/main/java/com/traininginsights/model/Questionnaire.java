@@ -16,6 +16,8 @@ public class Questionnaire {
     @Column(columnDefinition = "TEXT")
     private String structure; // JSON definition
 
+    private boolean daily = false;
+
     @ManyToOne
     @JoinColumn(name = "creator_id")
     private User creator;
@@ -28,6 +30,9 @@ public class Questionnaire {
 
     public String getStructure() { return structure; }
     public void setStructure(String structure) { this.structure = structure; }
+
+    public boolean isDaily() { return daily; }
+    public void setDaily(boolean daily) { this.daily = daily; }
 
     public User getCreator() { return creator; }
     public void setCreator(User creator) { this.creator = creator; }

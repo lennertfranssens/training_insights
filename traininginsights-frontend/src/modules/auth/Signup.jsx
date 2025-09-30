@@ -6,7 +6,7 @@ const categories = ['CADET','SCHOLIER','JUNIOR','SENIOR']
 export default function Signup(){
   const { signup } = useAuth()
   const nav = useNavigate()
-  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', athleteCategory:'SENIOR' })
+  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', athleteCategory:'SENIOR', birthDate: '' })
   const onSubmit = async (e) => { e.preventDefault(); await signup(form); nav('/dashboard') }
   return (
     <Container maxWidth="sm">
@@ -21,6 +21,7 @@ export default function Signup(){
             <TextField select label="Athlete Category" value={form.athleteCategory} onChange={e=>setForm({...form, athleteCategory:e.target.value})}>
               {categories.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
             </TextField>
+            <TextField type="date" label="Birth date" InputLabelProps={{ shrink: true }} value={form.birthDate} onChange={e=>setForm({...form, birthDate: e.target.value})} />
             <Button type="submit" variant="contained">Create account</Button>
           </Stack>
         </form>

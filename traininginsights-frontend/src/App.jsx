@@ -7,6 +7,7 @@ import SuperAdminDashboard from './modules/dashboards/SuperAdminDashboard'
 import AdminDashboard from './modules/dashboards/AdminDashboard'
 import TrainerDashboard from './modules/dashboards/TrainerDashboard'
 import AthleteDashboard from './modules/dashboards/AthleteDashboard'
+import Settings from './modules/pages/Settings'
 import Layout from './modules/common/Layout'
 
 export default function App(){
@@ -18,6 +19,7 @@ export default function App(){
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<ProtectedRoute roles={['ROLE_SUPERADMIN','ROLE_ADMIN','ROLE_TRAINER','ROLE_ATHLETE']} />}>
           <Route path="" element={<DashboardRouter />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

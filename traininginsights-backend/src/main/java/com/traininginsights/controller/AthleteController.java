@@ -8,6 +8,9 @@ import com.traininginsights.repository.UserRepository;
 import com.traininginsights.service.QuestionnaireResponseService;
 import com.traininginsights.service.TrainingService;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -32,6 +35,7 @@ public class AthleteController {
     }
 
     @GetMapping("/trainings/upcoming")
+    @Transactional(readOnly = true)
     public List<Training> upcomingTrainings(Authentication auth){
         User athlete = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
         Group g = athlete.getGroupEntity();
@@ -40,6 +44,7 @@ public class AthleteController {
     }
 
     @GetMapping("/questionnaires/pending")
+    @Transactional(readOnly = true)
     public List<Map<String,Object>> pendingQuestionnaires(Authentication auth){
         User athlete = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
         Group g = athlete.getGroupEntity();
@@ -47,7 +52,7 @@ public class AthleteController {
         Instant now = Instant.now();
         List<Map<String,Object>> pending = new ArrayList<>();
         for (Training t : trainingRepository.findAll()) {
-            if (!t.isVisibleToAthletes()) continue;
+            // visibility should only affect description/attachments; questionnaires remain available to athletes
             if (t.getGroups() == null || !t.getGroups().contains(g)) continue;
             if (t.getPreQuestionnaire() != null && t.getTrainingTime().isAfter(now)) {
                 boolean filled = responseService.find(athlete, t, t.getPreQuestionnaire()).isPresent();
@@ -79,5 +84,42 @@ public class AthleteController {
         Training t = req.trainingId != null ? trainingRepository.findById(req.trainingId).orElse(null) : null;
         Questionnaire q = questionnaireRepository.findById(req.questionnaireId).orElseThrow();
         return responseService.submit(athlete, t, q, req.responses);
+    }
+
+    @GetMapping("/questionnaires/filled")
+    @Transactional(readOnly = true)
+    public List<QuestionnaireResponse> filledQuestionnaires(Authentication auth){
+        User athlete = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        return responseService.byUser(athlete);
+    }
+
+    @GetMapping("/trainings/{id}/view")
+    @Transactional(readOnly = true)
+    public Map<String,Object> viewTraining(Authentication auth, @PathVariable Long id){
+        User athlete = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        Training t = trainingRepository.findById(id).orElseThrow();
+        Group g = athlete.getGroupEntity();
+        // ensure athlete belongs to one of the training groups
+        if (g == null || t.getGroups() == null || t.getGroups().stream().noneMatch(gr -> gr.getId() != null && gr.getId().equals(g.getId()))){
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not allowed to view this training");
+        }
+        Map<String,Object> res = new HashMap<>();
+        res.put("id", t.getId());
+        res.put("title", t.getTitle());
+        res.put("trainingTime", t.getTrainingTime());
+        res.put("visibleToAthletes", t.isVisibleToAthletes());
+        res.put("groups", t.getGroups());
+        // If training is visible to athletes, include description and questionnaires
+        if (t.isVisibleToAthletes()){
+            res.put("description", t.getDescription());
+            res.put("preQuestionnaire", t.getPreQuestionnaire());
+            res.put("postQuestionnaire", t.getPostQuestionnaire());
+        } else {
+            // limited info
+            res.put("description", null);
+            res.put("preQuestionnaire", t.getPreQuestionnaire() != null ? Map.of("id", t.getPreQuestionnaire().getId()) : null);
+            res.put("postQuestionnaire", t.getPostQuestionnaire() != null ? Map.of("id", t.getPostQuestionnaire().getId()) : null);
+        }
+        return res;
     }
 }

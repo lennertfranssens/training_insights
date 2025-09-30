@@ -25,7 +25,16 @@ public class TrainingService {
 
     public List<Training> all(){ return repo.findAll(); }
     public Training get(Long id){ return repo.findById(id).orElseThrow(); }
-    public Training save(Training t){ return repo.save(t); }
+    public Training save(Training t){
+        // compute notificationTime if preNotificationMinutes and trainingTime provided
+        if (t.getTrainingTime() != null && t.getPreNotificationMinutes() != null && t.getPreNotificationMinutes() > 0){
+            t.setNotificationTime(t.getTrainingTime().minusSeconds(t.getPreNotificationMinutes() * 60L));
+        } else {
+            t.setNotificationTime(null);
+        }
+        Training saved = repo.save(t);
+        return saved;
+    }
     public void delete(Long id){ repo.deleteById(id); }
 
     public List<Training> upcomingForGroup(Group group){

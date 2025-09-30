@@ -21,4 +21,19 @@ public class AnalyticsController {
         double avg = service.getGroupSorenessAverage(groupId, year, isoWeek);
         return Map.of("groupId", groupId, "year", year, "isoWeek", isoWeek, "sorenessAverage", avg);
     }
+
+    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
+    @GetMapping("/aggregate")
+    public java.util.Map<String,Object> aggregate(
+            @RequestParam String metric, // e.g. 'soreness' or any numeric field in questionnaire responses
+            @RequestParam String dimension, // athlete|group|club|age
+            @RequestParam String granularity, // day|week|month|training
+            @RequestParam(required=false) Long groupId,
+            @RequestParam(required=false) Long clubId,
+            @RequestParam(required=false) String start, // ISO date
+            @RequestParam(required=false) String end // ISO date
+    ){
+        var data = service.aggregate(metric, dimension, granularity, groupId, clubId, start, end);
+        return Map.of("metric", metric, "dimension", dimension, "granularity", granularity, "data", data);
+    }
 }

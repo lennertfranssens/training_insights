@@ -21,10 +21,13 @@ import com.traininginsights.repository.AttachmentRepository;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.UUID;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import org.springframework.core.io.InputStreamResource;
 import java.io.IOException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
-import java.io.File;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
@@ -86,41 +89,78 @@ public class TrainingController {
     // Attachments
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
     @PostMapping(path="/{id}/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public Attachment uploadAttachment(@PathVariable Long id, @RequestPart MultipartFile file) throws IOException{
+    public Attachment uploadAttachment(Authentication auth, @PathVariable Long id, @RequestPart MultipartFile file) throws IOException{
         var t = service.get(id);
-        // store file under uploads/<trainingId>/filename
-    Path base = Paths.get(uploadsDir).toAbsolutePath();
-    Path dir = base.resolve(String.valueOf(id));
-    Files.createDirectories(dir);
-    Path dst = dir.resolve(file.getOriginalFilename());
-    file.transferTo(dst.toFile());
+        // Only allow admins or trainers assigned to the training to upload
+        var caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        boolean isAdmin = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ADMIN") || r.getName().name().equals("ROLE_SUPERADMIN"));
+        boolean trainerAssigned = t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getId().equals(caller.getId())));
+        if (!isAdmin && !trainerAssigned){ throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to upload attachment for this training"); }
+
+        // sanitize original filename and store using a safe generated name (UUID + original extension)
+        String original = file.getOriginalFilename() != null ? Paths.get(file.getOriginalFilename()).getFileName().toString() : "file";
+        String ext = "";
+        int idx = original.lastIndexOf('.');
+        if (idx >= 0) ext = original.substring(idx);
+        String storedName = UUID.randomUUID().toString() + ext;
+
+        Path base = Paths.get(uploadsDir).toAbsolutePath().normalize();
+        Path dir = base.resolve(String.valueOf(id)).normalize();
+        Files.createDirectories(dir);
+        Path dst = dir.resolve(storedName).normalize();
+        // ensure path stays within uploads directory
+        if (!dst.startsWith(base)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid file path");
+
+        file.transferTo(dst.toFile());
         Attachment a = new Attachment();
-        a.setFilename(file.getOriginalFilename());
+        a.setFilename(original);
         a.setContentType(file.getContentType());
-    a.setPath(dst.toString());
+        a.setPath(dst.toString());
         a.setTraining(t);
         return attachmentRepository.save(a);
     }
 
     @GetMapping("/{id}/attachments")
-    public java.util.List<Attachment> listAttachments(@PathVariable Long id){
+    public java.util.List<Attachment> listAttachments(Authentication auth, @PathVariable Long id){
         var t = service.get(id);
-        return attachmentRepository.findByTraining(t);
+        var caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        boolean isAdmin = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ADMIN") || r.getName().name().equals("ROLE_SUPERADMIN"));
+        boolean trainerAssigned = t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getId().equals(caller.getId())));
+        boolean athleteInGroup = caller.getGroupEntity() != null && t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getId().equals(caller.getGroupEntity().getId()));
+        // Admins and assigned trainers can always view attachments. Athletes can view attachments only if they belong to a training group and the training is visible to athletes.
+        if (isAdmin || trainerAssigned) return attachmentRepository.findByTraining(t);
+        if (athleteInGroup) {
+            if (!t.isVisibleToAthletes()) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Attachments are not visible for athletes for this training");
+            return attachmentRepository.findByTraining(t);
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view attachments for this training");
     }
 
     @GetMapping("/attachments/{attachmentId}")
-    public ResponseEntity<byte[]> download(@PathVariable Long attachmentId){
+    public ResponseEntity<InputStreamResource> download(Authentication auth, @PathVariable Long attachmentId){
         Attachment a = attachmentRepository.findById(attachmentId).orElseThrow();
-        File f = new File(a.getPath());
-        if (!f.exists()){
-            return ResponseEntity.notFound().build();
+        Training t = a.getTraining();
+        var caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        boolean isAdmin = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ADMIN") || r.getName().name().equals("ROLE_SUPERADMIN"));
+        boolean trainerAssigned = t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getId().equals(caller.getId())));
+        boolean athleteInGroup = caller.getGroupEntity() != null && t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getId().equals(caller.getGroupEntity().getId()));
+        if (!(isAdmin || trainerAssigned || (athleteInGroup && t.isVisibleToAthletes()))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to download this attachment");
         }
+
+        Path base = Paths.get(uploadsDir).toAbsolutePath().normalize();
+        Path filePath = Paths.get(a.getPath()).toAbsolutePath().normalize();
+        if (!filePath.startsWith(base) || !Files.exists(filePath)) return ResponseEntity.notFound().build();
         try {
-            byte[] data = Files.readAllBytes(f.toPath());
-            return ResponseEntity.ok().contentType(MediaType.parseMediaType(a.getContentType()!=null ? a.getContentType(): "application/octet-stream")).body(data);
+            InputStreamResource resource = new InputStreamResource(Files.newInputStream(filePath));
+            String filename = a.getFilename() != null ? a.getFilename() : "attachment";
+            String disp = "attachment; filename=\"" + URLEncoder.encode(filename, StandardCharsets.UTF_8.toString()).replaceAll("\\+", "%20") + "\"";
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(a.getContentType()!=null ? a.getContentType(): "application/octet-stream"))
+                    .header("Content-Disposition", disp)
+                    .body(resource);
         } catch (IOException e){
-            // return 500 with a generic message instead of leaking filesystem details
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new byte[0]);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
     }
 

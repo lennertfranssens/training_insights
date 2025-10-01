@@ -43,10 +43,35 @@ public class TrainingController {
 
     public TrainingController(TrainingService service, UserRepository userRepository, AttachmentRepository attachmentRepository, QuestionnaireResponseService responseService, @Value("${app.uploadsDir:uploads}") String uploadsDir){ this.service = service; this.userRepository = userRepository; this.attachmentRepository = attachmentRepository; this.responseService = responseService; this.uploadsDir = uploadsDir; }
 
-    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
-    @GetMapping public java.util.List<Training> all(){ return service.all(); }
-    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
-    @GetMapping("/{id}") public Training get(@PathVariable Long id){ return service.get(id); }
+    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN','ATHLETE')")
+    @GetMapping public java.util.List<Training> all(Authentication auth){
+        // Trainers/Admins/Superadmins see everything
+        var caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        boolean isAthlete = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ATHLETE"));
+        if (!isAthlete) return service.all();
+        // Athlete: return trainings assigned to the athlete's group (all, regardless of visible flag).
+    var group = caller.getGroupEntity();
+    if (group == null) return java.util.Collections.emptyList();
+    return service.findByGroupId(group.getId());
+    }
+
+    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN','ATHLETE')")
+    @GetMapping("/{id}") public Training get(@PathVariable Long id, Authentication auth){
+        Training t = service.get(id);
+        var caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        boolean isAthlete = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ATHLETE"));
+        if (!isAthlete) return t; // trainers/admins/superadmins get full training
+        // Athlete: must belong to one of the training groups
+    var group = caller.getGroupEntity();
+    if (group == null) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view this training");
+    boolean inGroup = service.existsByIdAndGroupId(t.getId(), group.getId());
+    if (!inGroup) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view this training");
+        // If the training is not marked visibleToAthletes, hide the description (attachments are already guarded by endpoints)
+        if (!t.isVisibleToAthletes()){
+            t.setDescription(null);
+        }
+        return t;
+    }
 
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
     @Transactional(readOnly = true)
@@ -225,5 +250,49 @@ public class TrainingController {
         java.util.Map<String, java.util.List<java.util.Map<String,Object>>> res = new java.util.HashMap<>();
         res.put("pre", pre); res.put("post", post);
         return res;
+    }
+
+    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
+    @GetMapping("/{id}/aggregations")
+    public java.util.Map<String,Object> aggregations(@PathVariable Long id){
+        Training t = service.get(id);
+        var responses = responseService.byTraining(t);
+        java.util.Map<String,Object> out = new java.util.HashMap<>();
+        // We'll compute averages per questionnaire id and phase for numeric top-level fields
+        var mapper = responseService.getObjectMapper();
+        java.util.Map<String, java.util.Map<String, Double>> sums = new java.util.HashMap<>();
+        java.util.Map<String, java.util.Map<String, Integer>> counts = new java.util.HashMap<>();
+        for (var r : responses){
+            try {
+                var node = mapper.readTree(r.getResponses());
+                if (!node.isObject()) continue;
+                String qid = r.getQuestionnaire() != null ? String.valueOf(r.getQuestionnaire().getId()) : "unknown";
+                String phase = r.getPhase() != null ? r.getPhase() : "DEFAULT";
+                String key = qid + "::" + phase;
+                for (var it = node.fields(); it.hasNext(); ){
+                    var e = it.next();
+                    String field = e.getKey();
+                    if (field.startsWith("_")) continue; // meta fields skip
+                    var val = e.getValue();
+                    if (val.isNumber()){
+                        sums.computeIfAbsent(key, k -> new java.util.HashMap<>()).put(field, sums.getOrDefault(key, java.util.Collections.emptyMap()).getOrDefault(field, 0.0) + val.asDouble());
+                        counts.computeIfAbsent(key, k -> new java.util.HashMap<>()).put(field, counts.getOrDefault(key, java.util.Collections.emptyMap()).getOrDefault(field, 0) + 1);
+                    }
+                }
+            } catch (Exception ignored){}
+        }
+        java.util.Map<String, java.util.Map<String, Double>> averages = new java.util.HashMap<>();
+        for (var entry : sums.entrySet()){
+            String key = entry.getKey();
+            var fieldMap = entry.getValue();
+            var avgMap = new java.util.HashMap<String, Double>();
+            for (var f : fieldMap.entrySet()){
+                String field = f.getKey(); double s = f.getValue(); int c = counts.getOrDefault(key, java.util.Collections.emptyMap()).getOrDefault(field, 1);
+                avgMap.put(field, c==0 ? 0.0 : s / c);
+            }
+            averages.put(key, avgMap);
+        }
+        out.put("averages", averages);
+        return out;
     }
 }

@@ -1,16 +1,17 @@
 import React, {useState} from 'react'
-import { Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, Snackbar } from '@mui/material'
+import { Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button } from '@mui/material'
 import api from '../api/client'
+import { useSnackbar } from './SnackbarProvider'
 
 export default function ComposeNotification({open, onClose, sendUrl, onSend}){
   const [form, setForm] = useState({title:'', body:''})
   const [saving, setSaving] = useState(false)
-  const [snack, setSnack] = useState({ open:false, msg:'' })
+  const { showSnackbar } = useSnackbar()
 
   async function send(){
     setSaving(true)
     try{ await api.post(sendUrl, { title: form.title, body: form.body }) ; onClose(); }
-    catch(e){ alert('Send failed'); }
+    catch(e){ showSnackbar('Send failed') }
     finally{ setSaving(false) }
   }
 
@@ -27,14 +28,14 @@ export default function ComposeNotification({open, onClose, sendUrl, onSend}){
       if (results && Array.isArray(results)){
         const successCount = results.filter(r => !r.error).length
         const failCount = results.length - successCount
-        setSnack({ open:true, msg:`Sent: ${successCount}, Failed: ${failCount}` })
+        showSnackbar(`Sent: ${successCount}, Failed: ${failCount}`)
         console.info('Notification send results', results)
       } else {
-        setSnack({ open:true, msg:'Sent' })
+        showSnackbar('Sent')
       }
       window.dispatchEvent(new Event('notifications-updated'))
       onClose()
-    }catch(e){ setSnack({ open:true, msg:'Send failed' }) }
+    }catch(e){ showSnackbar('Send failed') }
     finally{ setSaving(false) }
   }
 
@@ -49,7 +50,7 @@ export default function ComposeNotification({open, onClose, sendUrl, onSend}){
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="contained" onClick={sendWithSnack} disabled={saving}>Send</Button>
       </DialogActions>
-      <Snackbar open={snack.open} autoHideDuration={3000} onClose={()=>setSnack({open:false,msg:''})} message={snack.msg} />
+  {/* global snackbar provided by SnackbarProvider */}
     </Dialog>
   )
 }

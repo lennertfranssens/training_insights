@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, ToggleButton, ToggleButtonGroup, Chip, Tabs, Tab, Box } from '@mui/material'
+import { useSnackbar } from '../common/SnackbarProvider'
 import QuestionnaireForm from '../common/QuestionnaireForm'
 import TrainingsListCalendar from '../common/TrainingsListCalendar'
 import UnreadBadge from '../common/UnreadBadge'
@@ -32,22 +33,22 @@ export default function AthleteDashboard(){
     setTrainings(t.data); setPending(p.data); setAllQuestionnaires(q.data || []); setFilled(f.data || []); if (q.data?.[0]) setDailyQId(q.data[0].id)
   }
   useEffect(()=>{ load() }, [])
-  useEffect(()=>{
-    // register service worker and subscribe for push notifications
-    (async ()=>{
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
-        try {
-        const reg = await navigator.serviceWorker.register('/service-worker.js')
-        const permission = await Notification.requestPermission()
-        if (permission !== 'granted') return
-        // get vapid public
-        const { data: vapid } = await api.get('/api/push/vapid-public')
-        const converted = urlBase64ToUint8Array(vapid)
-        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: converted })
-        await api.post('/api/push/subscribe', { endpoint: sub.endpoint, keys: { p256dh: arrayBufferToBase64(sub.getKey('p256dh')), auth: arrayBufferToBase64(sub.getKey('auth')) } })
-      } catch (e){ /* push subscribe failed (silent) */ }
-    })()
-  }, [])
+  const { showSnackbar } = useSnackbar()
+
+  // One-click enable push for athletes (don't auto-subscribe on page load)
+  const enablePush = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) { showSnackbar('Push not supported in this browser', { duration: 5000 }); return }
+    try{
+      const reg = await navigator.serviceWorker.register('/service-worker.js')
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') { showSnackbar('Push permission not granted', { duration: 6000 }); return }
+      const { data: vapid } = await api.get('/api/push/vapid-public')
+      const converted = await urlBase64ToUint8Array(vapid)
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: converted })
+      await api.post('/api/push/subscribe', { endpoint: sub.endpoint, keys: { p256dh: arrayBufferToBase64(sub.getKey('p256dh')), auth: arrayBufferToBase64(sub.getKey('auth')) } })
+      showSnackbar('Push enabled')
+    } catch(e){ console.error(e); showSnackbar('Failed to enable push: ' + (e?.response?.data?.message || e?.message || e), { duration: 8000 }) }
+  }
 
   function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -65,7 +66,7 @@ export default function AthleteDashboard(){
     for (let i=0;i<bytes.byteLength;i++) binary += String.fromCharCode(bytes[i]);
     return btoa(binary);
   }
-  const openQuestionnaire = async (trainingId, questionnaireId) => {
+  const openQuestionnaire = async (trainingId, questionnaireId, phase = null) => {
     const q = allQuestionnaires.find(x => x.id === questionnaireId); if (!q) return
     // try to prefill values if an existing submission exists (for daily or previous submissions)
     let values = {}
@@ -73,15 +74,15 @@ export default function AthleteDashboard(){
     if (existing && existing.responses){
       try { values = JSON.parse(existing.responses) } catch (e) { values = {} }
     }
-    setQStructure(q.structure); setQValues(values); setQContext({ trainingId, questionnaireId }); setQOpen(true)
+    setQStructure(q.structure); setQValues(values); setQContext({ trainingId, questionnaireId, phase }); setQOpen(true)
   }
   const submit = async () => {
-    await api.post('/api/athlete/questionnaires/submit', { trainingId: qContext.trainingId, questionnaireId: qContext.questionnaireId, responses: JSON.stringify(qValues) })
+    await api.post('/api/athlete/questionnaires/submit', { trainingId: qContext.trainingId, questionnaireId: qContext.questionnaireId, responses: JSON.stringify(qValues), phase: qContext.phase || 'DEFAULT' })
     setQOpen(false); await load()
   }
   const dailySubmit = async () => {
     if (!dailyQId) return
-    await api.post('/api/athlete/questionnaires/submit', { trainingId: null, questionnaireId: dailyQId, responses: JSON.stringify(qValues) })
+    await api.post('/api/athlete/questionnaires/submit', { trainingId: null, questionnaireId: dailyQId, responses: JSON.stringify(qValues), phase: 'DAILY' })
     setQOpen(false); await load()
   }
   return (
@@ -92,6 +93,9 @@ export default function AthleteDashboard(){
           <Tab label="Questionnaires" />
           <Tab label={<span style={{ display: 'flex', alignItems: 'center', gap:8 }}><span>Notifications</span><UnreadBadge /></span>} />
         </Tabs>
+        <div style={{ marginTop: 8 }}>
+          <Button size="small" variant="outlined" onClick={enablePush}>Enable notifications</Button>
+        </div>
       </Paper>
 
       <Box hidden={tab !== 0}>
@@ -174,7 +178,7 @@ export default function AthleteDashboard(){
                     <Typography>{title}{date ? ` — ${date}` : ''} — {item.type}</Typography>
                     <Typography variant="body2">Q: {allQuestionnaires.find(q=>q.id===item.questionnaireId)?.title || `ID ${item.questionnaireId}`}</Typography>
                   </div>
-                  <Button variant="contained" onClick={()=>openQuestionnaire(item.trainingId, item.questionnaireId)}>Fill</Button>
+                  <Button variant="contained" onClick={()=>openQuestionnaire(item.trainingId, item.questionnaireId, item.type)}>Fill</Button>
                 </Paper>
               )
             })}
@@ -277,7 +281,7 @@ export default function AthleteDashboard(){
                       <>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <Typography variant="body2">{viewTraining.preQuestionnaire.title || `Q ${viewTraining.preQuestionnaire.id}`}</Typography>
-                          <Button size="small" onClick={()=>openQuestionnaire(viewTraining.id, viewTraining.preQuestionnaire.id)}>Open</Button>
+                          <Button size="small" onClick={()=>openQuestionnaire(viewTraining.id, viewTraining.preQuestionnaire.id, 'PRE')}>Open</Button>
                         </div>
                         {(trainingResponses.pre||[]).length === 0 ? <Typography variant="body2">No pre-training response</Typography> : trainingResponses.pre.map(r => (
                           <div key={r.id} style={{ border: '1px solid #eee', padding: 8, marginBottom: 8 }}>
@@ -296,7 +300,7 @@ export default function AthleteDashboard(){
                       <>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <Typography variant="body2">{viewTraining.postQuestionnaire.title || `Q ${viewTraining.postQuestionnaire.id}`}</Typography>
-                          <Button size="small" onClick={()=>openQuestionnaire(viewTraining.id, viewTraining.postQuestionnaire.id)}>Open</Button>
+                          <Button size="small" onClick={()=>openQuestionnaire(viewTraining.id, viewTraining.postQuestionnaire.id, 'POST')}>Open</Button>
                         </div>
                         {(trainingResponses.post||[]).length === 0 ? <Typography variant="body2">No post-training response</Typography> : trainingResponses.post.map(r => (
                           <div key={r.id} style={{ border: '1px solid #eee', padding: 8, marginBottom: 8 }}>

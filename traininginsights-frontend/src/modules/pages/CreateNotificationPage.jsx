@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { Paper, Typography, Stack, TextField, MenuItem, Button } from '@mui/material'
+import { useSnackbar } from '../common/SnackbarProvider'
 
 export default function CreateNotificationPage(){
   const [clubs, setClubs] = useState([])
@@ -8,12 +9,24 @@ export default function CreateNotificationPage(){
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   useEffect(()=>{ api.get('/api/clubs').then(r=> setClubs(r.data)).catch(()=>{}) }, [])
+  // read preselected clubs (set by other pages like GroupsPage) and clear
+  useEffect(()=>{
+    try{
+      const raw = sessionStorage.getItem('preselectedNotificationClubs')
+      if (raw){
+        const arr = JSON.parse(raw)
+        if (Array.isArray(arr) && arr.length>0) setSelectedClubs(arr)
+        sessionStorage.removeItem('preselectedNotificationClubs')
+      }
+    }catch(e){}
+  }, [])
+  const { showSnackbar } = useSnackbar()
   const send = async () => {
-    if (!title || !body || selectedClubs.length===0) return alert('Provide title, body and at least one club')
+    if (!title || !body || selectedClubs.length===0) return showSnackbar('Provide title, body and at least one club')
     try{
       const { data } = await api.post('/api/notifications/batch/club/send', { ids: selectedClubs, title, body })
-      alert('Notifications dispatched')
-    }catch(e){ alert('Send failed: ' + (e.message || e)) }
+      showSnackbar('Notifications dispatched')
+    }catch(e){ showSnackbar('Send failed: ' + (e.message || e)) }
   }
   return (
     <Paper sx={{ p:2 }}>

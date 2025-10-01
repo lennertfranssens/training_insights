@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Tabs, Tab, Box, Paper } from '@mui/material'
 import SeasonsPage from '../pages/SeasonsPage'
 import CreateNotificationPage from '../pages/CreateNotificationPage'
+import NotificationsInbox from '../pages/NotificationsInbox'
 import UsersPage from '../pages/UsersPage'
 import PushConfigAdmin from '../pages/PushConfigAdmin'
 import ClubMembersPage from '../pages/ClubMembersPage'
@@ -19,12 +20,15 @@ export default function AdminDashboard(){
     const handler = (e) => {
       const s = e?.detail?.section
       if (!s) return
+      // support explicit tab numeric override
+      if (e?.detail?.tab !== undefined && typeof e.detail.tab === 'number') { setTab(e.detail.tab); return }
       if (s === 'trainers') setTab(0)
       if (s === 'athletes') setTab(1)
       if (s === 'clubmembers') setTab(2)
-  if (s === 'push') setTab(3)
-  if (s === 'smtp') setTab(4)
-  if (s === 'notifications') setTab(5)
+      if (s === 'push') setTab(3)
+      if (s === 'smtp') setTab(4)
+  // 'Seasons' is tab index 5, 'Notifications' is tab index 6, 'Create Notification' is tab index 7
+  if (s === 'notifications') setTab(6)
       if (s === 'users') setTab(0)
       if (s === 'groups') setTab(2)
       if (s === 'trainings') setTab(3)
@@ -43,7 +47,8 @@ export default function AdminDashboard(){
             <Tab label="Push Config" />
             <Tab label="SMTP Settings" />
             <Tab label="Seasons" />
-            <Tab label="Create Notification" />
+            <Tab label="Notifications" />
+              <Tab label="Create Notification" />
         </Tabs>
       </Paper>
   {tab===0 && <UsersPage title="Trainers" defaultRole="ROLE_TRAINER" />}
@@ -63,8 +68,9 @@ export default function AdminDashboard(){
         </div>
   )}
     {tab===4 && <></>}
-    {tab===5 && <SeasonsPage />}
-    {tab===6 && <CreateNotificationPage />}
+  {tab===5 && <SeasonsPage />}
+  {tab===6 && <NotificationsInbox />}
+  {tab===7 && <CreateNotificationPage />}
     </Box>
   )
 }

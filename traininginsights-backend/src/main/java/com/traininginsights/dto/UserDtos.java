@@ -11,6 +11,7 @@ public class UserDtos {
         public AthleteCategory athleteCategory;
         public boolean active;
     public Boolean activeOverride;
+        public String birthDate;
         public Long groupId;
         public String groupName;
         public String[] roles;

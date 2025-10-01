@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Paper, Typography, Stack, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, Divider } from '@mui/material'
+import { useSnackbar } from '../common/SnackbarProvider'
 
 export default function GoalsPage(){
   const { auth } = useAuth()
@@ -10,6 +11,7 @@ export default function GoalsPage(){
   const [form, setForm] = useState({ start:'', end:'', description:'' })
   const [selectedGoal, setSelectedGoal] = useState(null)
   const [feedback, setFeedback] = useState('')
+  const { showSnackbar } = useSnackbar()
 
   const isTrainer = () => (auth?.roles || []).some(r => r === 'ROLE_TRAINER' || r === 'TRAINER' || r === 'ROLE_ADMIN' || r === 'ADMIN')
 
@@ -33,7 +35,7 @@ export default function GoalsPage(){
       const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB') : null
       await api.post('/api/athlete/goals', { start: fmt(form.start), end: fmt(form.end), description: form.description })
       setOpenCreate(false); setForm({ start:'', end:'', description:'' }); await load()
-    } catch(e){ alert('Unable to create goal: ' + (e?.response?.data?.message || e.message)) }
+  } catch(e){ showSnackbar('Unable to create goal: ' + (e?.response?.data?.message || e.message)) }
   }
 
   const submitFeedback = async () => {
@@ -41,7 +43,7 @@ export default function GoalsPage(){
     try {
       await api.post(`/api/goals/${selectedGoal.id}/feedback`, { comment: feedback })
       setFeedback(''); setSelectedGoal(null); await load()
-    } catch(e){ alert('Unable to add feedback') }
+  } catch(e){ showSnackbar('Unable to add feedback') }
   }
 
   return (

@@ -11,6 +11,7 @@ import java.util.Optional;
 
 public interface QuestionnaireResponseRepository extends JpaRepository<QuestionnaireResponse, Long> {
     Optional<QuestionnaireResponse> findByUserAndTrainingAndQuestionnaire(User user, Training training, Questionnaire questionnaire);
+    Optional<QuestionnaireResponse> findByUserAndTrainingAndQuestionnaireAndPhase(User user, Training training, Questionnaire questionnaire, String phase);
     List<QuestionnaireResponse> findByTraining(Training training);
     List<QuestionnaireResponse> findByUser(User user);
     List<QuestionnaireResponse> findByQuestionnaire(Questionnaire questionnaire);

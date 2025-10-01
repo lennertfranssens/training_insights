@@ -5,5 +5,6 @@ public class QuestionnaireResponseDtos {
         public Long trainingId; // optional when generic
         public Long questionnaireId;
         public String responses; // JSON string
+        public String phase; // optional: PRE, POST, DAILY, DEFAULT
     }
 }

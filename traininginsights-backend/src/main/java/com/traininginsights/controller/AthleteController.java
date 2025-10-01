@@ -55,7 +55,7 @@ public class AthleteController {
             // visibility should only affect description/attachments; questionnaires remain available to athletes
             if (t.getGroups() == null || !t.getGroups().contains(g)) continue;
             if (t.getPreQuestionnaire() != null && t.getTrainingTime().isAfter(now)) {
-                boolean filled = responseService.find(athlete, t, t.getPreQuestionnaire()).isPresent();
+                boolean filled = responseService.find(athlete, t, t.getPreQuestionnaire(), "PRE").isPresent();
                 if (!filled) {
                     Map<String,Object> item = new HashMap<>();
                     item.put("trainingId", t.getId());
@@ -65,7 +65,7 @@ public class AthleteController {
                 }
             }
             if (t.getPostQuestionnaire() != null && t.getTrainingTime().isBefore(now)) {
-                boolean filled = responseService.find(athlete, t, t.getPostQuestionnaire()).isPresent();
+                boolean filled = responseService.find(athlete, t, t.getPostQuestionnaire(), "POST").isPresent();
                 if (!filled) {
                     Map<String,Object> item = new HashMap<>();
                     item.put("trainingId", t.getId());
@@ -83,7 +83,8 @@ public class AthleteController {
         User athlete = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
         Training t = req.trainingId != null ? trainingRepository.findById(req.trainingId).orElse(null) : null;
         Questionnaire q = questionnaireRepository.findById(req.questionnaireId).orElseThrow();
-        return responseService.submit(athlete, t, q, req.responses);
+        String phase = req.phase != null ? req.phase : "DEFAULT";
+        return responseService.submit(athlete, t, q, phase, req.responses);
     }
 
     @GetMapping("/questionnaires/filled")

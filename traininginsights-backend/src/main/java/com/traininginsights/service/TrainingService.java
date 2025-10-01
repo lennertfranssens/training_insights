@@ -25,6 +25,8 @@ public class TrainingService {
 
     public List<Training> all(){ return repo.findAll(); }
     public Training get(Long id){ return repo.findById(id).orElseThrow(); }
+    public List<Training> findByGroupId(Long groupId){ return repo.findByGroups_Id(groupId); }
+    public boolean existsByIdAndGroupId(Long id, Long groupId){ return repo.existsByIdAndGroups_Id(id, groupId); }
     public Training save(Training t){
         // compute notificationTime if preNotificationMinutes and trainingTime provided
         if (t.getTrainingTime() != null && t.getPreNotificationMinutes() != null && t.getPreNotificationMinutes() > 0){
@@ -50,6 +52,9 @@ public class TrainingService {
 
     public Training setQuestionnaires(Long trainingId, Long preId, Long postId){
         Training t = get(trainingId);
+        if (preId != null && postId != null && preId.equals(postId)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Pre and post questionnaires cannot be the same");
+        }
         Questionnaire pre = preId != null ? qRepo.findById(preId).orElse(null) : null;
         Questionnaire post = postId != null ? qRepo.findById(postId).orElse(null) : null;
         t.setPreQuestionnaire(pre);

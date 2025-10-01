@@ -7,6 +7,7 @@ import TrainingsPage from '../pages/TrainingsPage'
 import QuestionnairesPage from '../pages/QuestionnairesPage'
 import AnalyticsPage from '../pages/AnalyticsPage'
 import NotificationsInbox from '../pages/NotificationsInbox'
+import TrainerCreateNotificationPage from '../pages/TrainerCreateNotificationPage'
 export default function TrainerDashboard(){
   const [tab, setTab] = useState(0)
   React.useEffect(()=>{
@@ -33,6 +34,7 @@ export default function TrainerDashboard(){
           <Tab label="Questionnaires" />
           <Tab label="Analytics" />
           <Tab label="Notifications" />
+          <Tab label="Create Notification" />
         </Tabs>
       </Paper>
   {tab===0 && <GroupsPage />}
@@ -41,6 +43,7 @@ export default function TrainerDashboard(){
       {tab===3 && <QuestionnairesPage />}
       {tab===4 && <AnalyticsPage />}
       {tab===5 && <NotificationsInbox />}
+      {tab===6 && <TrainerCreateNotificationPage />}
     </Box>
   )
 }

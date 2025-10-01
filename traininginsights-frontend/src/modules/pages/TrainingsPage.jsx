@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api/client'
+import { useSnackbar } from '../common/SnackbarProvider'
 import { useAuth } from '../auth/AuthContext'
 import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Chip, ToggleButton, ToggleButtonGroup } from '@mui/material'
 import QuestionnaireForm from '../common/QuestionnaireForm'
@@ -9,6 +10,7 @@ import interactionPlugin from '@fullcalendar/interaction'
 import TrainingsListCalendar from '../common/TrainingsListCalendar'
 export default function TrainingsPage(){
   const [trainings, setTrainings] = useState([])
+  const { showSnackbar } = useSnackbar()
   const [groups, setGroups] = useState([])
   const [questionnaires, setQuestionnaires] = useState([])
   const [open, setOpen] = useState(false)
@@ -18,6 +20,8 @@ export default function TrainingsPage(){
   const [editingTraining, setEditingTraining] = useState(null)
   const [attachments, setAttachments] = useState({})
   const [questionnaireResponses, setQuestionnaireResponses] = useState({}) // keyed by training id -> { pre: [], post: [] }
+  const [aggregations, setAggregations] = useState({}) // keyed by training id -> averages map
+  const [aggregationPhaseFilter, setAggregationPhaseFilter] = useState('ALL') // 'ALL' | 'PRE' | 'POST' | 'DEFAULT'
   const [selectedResponse, setSelectedResponse] = useState(null)
   const [selectedResponseOpen, setSelectedResponseOpen] = useState(false)
   // helper to download/open an attachment using the API client (sends Authorization header)
@@ -36,7 +40,7 @@ export default function TrainingsPage(){
       setTimeout(() => window.URL.revokeObjectURL(url), 10000)
     } catch (e) {
       console.error('Failed to open attachment', e)
-      alert('Unable to download attachment (check your permissions or server)')
+      showSnackbar('Unable to download attachment (check your permissions or server)')
     }
   }
   const { auth } = useAuth()
@@ -57,17 +61,21 @@ export default function TrainingsPage(){
   }
   useEffect(()=>{ load() }, [])
   const create = async () => {
+    if (form.preQuestionnaireId && form.postQuestionnaireId && String(form.preQuestionnaireId) === String(form.postQuestionnaireId)) { showSnackbar('Pre and post questionnaires cannot be the same'); return }
     const payload = { title: form.title, description: form.description, trainingTime: new Date(form.trainingTime).toISOString(), trainingEndTime: form.trainingEndTime ? new Date(form.trainingEndTime).toISOString() : null, preNotificationMinutes: form.preNotificationMinutes || 0, visibleToAthletes: form.visibleToAthletes }
     const { data } = await api.post('/api/trainings', payload)
-    if (fileToUpload) {
-      const fd = new FormData(); fd.append('file', fileToUpload); await api.post(`/api/trainings/${data.id}/attachments`, fd, { headers: {'Content-Type': 'multipart/form-data'} })
-    }
+    // assign groups first so a creating trainer is considered assigned and can upload attachments
     if (form.groupIds?.length){ await api.post(`/api/trainings/${data.id}/assign-groups`, { groupIds: form.groupIds }) }
+    if (fileToUpload) {
+      const fd = new FormData(); fd.append('file', fileToUpload);
+      await api.post(`/api/trainings/${data.id}/attachments`, fd)
+    }
     if (form.preQuestionnaireId || form.postQuestionnaireId) { await api.post(`/api/trainings/${data.id}/set-questionnaires?preId=${form.preQuestionnaireId||''}&postId=${form.postQuestionnaireId||''}`) }
     setOpen(false); setEditingTraining(null); setForm({ title:'', description:'', trainingTime:'', visibleToAthletes:true, groupIds:[], preQuestionnaireId:null, postQuestionnaireId:null }); await load()
   }
 
   const save = async () => {
+    if (form.preQuestionnaireId && form.postQuestionnaireId && String(form.preQuestionnaireId) === String(form.postQuestionnaireId)) { showSnackbar('Pre and post questionnaires cannot be the same'); return }
     setTimeError('')
     // validate times: if trainingEndTime provided it must be after trainingTime
     if (form.trainingEndTime) {
@@ -83,7 +91,7 @@ export default function TrainingsPage(){
       // if a new file was chosen during edit, upload it
       if (fileToUpload) {
         const fd = new FormData(); fd.append('file', fileToUpload);
-        await api.post(`/api/trainings/${editingTraining.id}/attachments`, fd, { headers: {'Content-Type': 'multipart/form-data'} })
+        await api.post(`/api/trainings/${editingTraining.id}/attachments`, fd)
       }
     } else {
       await create()
@@ -107,7 +115,7 @@ export default function TrainingsPage(){
           <Button variant="contained" onClick={()=>setOpen(true)}>Create</Button>
         </Stack>
       </Stack>
-      <TrainingsListCalendar
+          <TrainingsListCalendar
         trainings={trainings}
         viewMode={viewMode}
         onViewModeChange={(v)=>{ setViewMode(v); try{ window.localStorage.setItem('trainings.viewMode', v) }catch(e){} }}
@@ -144,12 +152,12 @@ export default function TrainingsPage(){
           setForm({ title:'', description:'', trainingTime: local, visibleToAthletes:true, groupIds:[], preQuestionnaireId:null, postQuestionnaireId:null })
           setEditingTraining(null); setOpen(true)
         }}
-        onEventClick={async (id, t)=>{
+          onEventClick={async (id, t)=>{
           try {
             // debug logging removed
             if (!t) {
               const found = trainings.find(x=>String(x.id) === String(id))
-              if (!found) { alert('Unable to open training: local training data not found. Try refreshing the page.'); return }
+              if (!found) { showSnackbar('Unable to open training: local training data not found. Try refreshing the page.'); return }
               t = found
             }
             const isTrainer = hasAnyRole(['ROLE_TRAINER','ROLE_ADMIN','ROLE_SUPERADMIN'])
@@ -159,6 +167,8 @@ export default function TrainingsPage(){
               setAttachments(prev => ({ ...prev, [t.id]: at }))
               // load questionnaire responses for this training (pre/post)
               try { const { data: qr } = await api.get(`/api/trainings/${t.id}/questionnaire-responses`); setQuestionnaireResponses(prev => ({ ...prev, [t.id]: qr })); } catch(e) { /* ignore */ }
+              // load training-level aggregations (numeric averages)
+              try { const { data: ag } = await api.get(`/api/trainings/${t.id}/aggregations`); setAggregations(prev => ({ ...prev, [t.id]: ag.averages || ag })); } catch(e) { /* ignore */ }
               const dt = t.trainingTime ? new Date(t.trainingTime) : null
               const endDt = t.trainingEndTime ? new Date(t.trainingEndTime) : null
               const local = dt ? new Date(dt.getTime() - dt.getTimezoneOffset()*60000).toISOString().slice(0,16) : ''
@@ -205,6 +215,9 @@ export default function TrainingsPage(){
               setEditingTraining(t);
               const { data: at } = await api.get(`/api/trainings/${t.id}/attachments`)
               setAttachments(prev => ({ ...prev, [t.id]: at }))
+              // load questionnaire responses and aggregations for edit view
+              try { const { data: qr } = await api.get(`/api/trainings/${t.id}/questionnaire-responses`); setQuestionnaireResponses(prev => ({ ...prev, [t.id]: qr })); } catch(e) { /* ignore */ }
+              try { const { data: ag } = await api.get(`/api/trainings/${t.id}/aggregations`); setAggregations(prev => ({ ...prev, [t.id]: ag.averages || ag })); } catch(e) { /* ignore */ }
               const dt = t.trainingTime ? new Date(t.trainingTime) : null
               const endDt = t.trainingEndTime ? new Date(t.trainingEndTime) : null
               const local = dt ? new Date(dt.getTime() - dt.getTimezoneOffset()*60000).toISOString().slice(0,16) : ''
@@ -222,7 +235,7 @@ export default function TrainingsPage(){
                     setAttachments(prev => ({ ...prev, [t.id]: at }))
                   }
                   setViewOpen(true)
-                } catch (err) { /* unable to open training for athlete (logged silently) */ alert('Unable to open training for athlete: ' + (err?.response?.data?.message || err?.message || 'Unknown error')) }
+                } catch (err) { showSnackbar('Unable to open training for athlete: ' + (err?.response?.data?.message || err?.message || 'Unknown error')) }
               }}>Open</Button>
             )}
             <Button color="error" onClick={()=>remove(t.id)}>Delete</Button>
@@ -266,11 +279,15 @@ export default function TrainingsPage(){
             </TextField>
             <TextField select label="Pre-questionnaire" value={form.preQuestionnaireId||''} onChange={e=>setForm({...form, preQuestionnaireId:e.target.value||null})}>
               <MenuItem value="">None</MenuItem>
-              {questionnaires.map(q => <MenuItem key={q.id} value={q.id}>{q.title}</MenuItem>)}
+              {questionnaires.map(q => (
+                <MenuItem key={q.id} value={q.id} disabled={form.postQuestionnaireId && String(form.postQuestionnaireId) === String(q.id)}>{q.title}</MenuItem>
+              ))}
             </TextField>
             <TextField select label="Post-questionnaire" value={form.postQuestionnaireId||''} onChange={e=>setForm({...form, postQuestionnaireId:e.target.value||null})}>
               <MenuItem value="">None</MenuItem>
-              {questionnaires.map(q => <MenuItem key={q.id} value={q.id}>{q.title}</MenuItem>)}
+              {questionnaires.map(q => (
+                <MenuItem key={q.id} value={q.id} disabled={form.preQuestionnaireId && String(form.preQuestionnaireId) === String(q.id)}>{q.title}</MenuItem>
+              ))}
             </TextField>
             <TextField label="Notify minutes before" type="number" value={form.preNotificationMinutes||0} onChange={e=>setForm({...form, preNotificationMinutes: Number(e.target.value)})} />
             <div>
@@ -310,6 +327,45 @@ export default function TrainingsPage(){
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+            {/* show training-level aggregations (trainer-only) */}
+            {editingTraining && aggregations[editingTraining.id] && (
+              <div>
+                <Stack direction="row" alignItems="center" spacing={2} sx={{ mt:2 }}>
+                  <Typography variant="subtitle2">Aggregations (numeric averages)</Typography>
+                  <ToggleButtonGroup size="small" value={aggregationPhaseFilter} exclusive onChange={(e, v) => { if (!v) return; setAggregationPhaseFilter(v) }} sx={{ ml:1 }}>
+                    <ToggleButton value="ALL">All</ToggleButton>
+                    <ToggleButton value="PRE">Pre</ToggleButton>
+                    <ToggleButton value="POST">Post</ToggleButton>
+                    <ToggleButton value="DEFAULT">Default</ToggleButton>
+                  </ToggleButtonGroup>
+                </Stack>
+                {Object.keys(aggregations[editingTraining.id] || {}).length === 0 ? (
+                  <Typography variant="body2">None</Typography>
+                ) : (
+                  Object.entries(aggregations[editingTraining.id]).filter(([key]) => {
+                    if (!aggregationPhaseFilter || aggregationPhaseFilter === 'ALL') return true
+                    const parts = key.split('::')
+                    const phase = parts[1] || 'DEFAULT'
+                    return String(phase).toUpperCase() === String(aggregationPhaseFilter).toUpperCase()
+                  }).map(([key, fieldMap]) => {
+                    const parts = key.split('::')
+                    const qid = parts[0]
+                    const phase = parts[1] || 'DEFAULT'
+                    const q = questionnaires.find(q => String(q.id) === String(qid))
+                    return (
+                      <div key={key} style={{ marginTop: 8 }}>
+                        <Typography variant="subtitle3">{q ? q.title : `Questionnaire ${qid}`} — {phase}</Typography>
+                        <ul>
+                          {Object.entries(fieldMap).map(([f, v]) => (
+                            <li key={f}>{f}: {typeof v === 'number' ? Number(v).toFixed(2) : String(v)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             )}
             {/* show questionnaire responses (trainer-only) */}

@@ -185,6 +185,7 @@ public class UserController {
         dto.athleteCategory = u.getAthleteCategory();
         dto.active = u.isActive();
     dto.activeOverride = u.getActiveOverride();
+        dto.birthDate = u.getBirthDate() != null ? u.getBirthDate().toString() : null;
         dto.groupId = u.getGroupEntity() != null ? u.getGroupEntity().getId() : null;
         dto.groupName = u.getGroupEntity() != null ? u.getGroupEntity().getName() : null;
         dto.roles = u.getRoles().stream().map(r -> r.getName().name()).toArray(String[]::new);

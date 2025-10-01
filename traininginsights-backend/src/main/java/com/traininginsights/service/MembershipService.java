@@ -158,4 +158,33 @@ public class MembershipService {
             }
         }
     }
+
+    public void deleteMembership(Long membershipId){
+        Membership m = membershipRepository.findById(membershipId).orElseThrow();
+        User u = m.getUser();
+        membershipRepository.delete(m);
+        // If the deleted membership was active and user has no other active memberships, set user inactive (unless overridden)
+        if (u != null && (u.getActiveOverride() == null)){
+            boolean hasActive = membershipRepository.findByUser(u).stream().anyMatch(x -> "ACTIVE".equalsIgnoreCase(x.getStatus()));
+            if (!hasActive){ u.setActive(false); userRepository.save(u); }
+        }
+    }
+
+    public java.util.List<Membership> batchCreateMemberships(java.util.List<Long> userIds, Long clubId, Long seasonId, Instant start, Instant end){
+        Club c = clubRepository.findById(clubId).orElseThrow();
+        Season s = seasonRepository.findById(seasonId).orElseThrow();
+        java.util.List<Membership> created = new java.util.ArrayList<>();
+        for (Long uid : userIds){
+            User u = userRepository.findById(uid).orElse(null);
+            if (u == null) continue;
+            // skip if user already has an active membership in this club for the same season
+            boolean already = membershipRepository.findByUser(u).stream().anyMatch(m -> m.getClub()!=null && m.getClub().getId().equals(clubId) && (m.getEndDate()==null) && (m.getSeason()!=null && m.getSeason().getId().equals(seasonId)));
+            if (already) continue;
+            Membership m = new Membership();
+            m.setUser(u); m.setClub(c); m.setSeason(s); m.setStartDate(start!=null?start:Instant.now()); m.setEndDate(end); m.setStatus("ACTIVE");
+            if (u != null && u.getActiveOverride() == null){ u.setActive(true); userRepository.save(u); }
+            created.add(membershipRepository.save(m));
+        }
+        return created;
+    }
 }

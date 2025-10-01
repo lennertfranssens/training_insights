@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { Paper, Typography, Stack, TextField, Button } from '@mui/material'
+import { useSnackbar } from '../common/SnackbarProvider'
 
 export default function PushConfigAdmin(){
   const [form, setForm] = useState({ vapidPublic:'', vapidPrivate:'', subject: 'mailto:admin@localhost' })
   const [loading, setLoading] = useState(true)
+  const { showSnackbar } = useSnackbar()
   useEffect(()=>{ (async ()=>{ try { const { data } = await api.get('/api/push/config'); if (data){ setForm({ vapidPublic: data.vapidPublic || '', vapidPrivate: data.vapidPrivate || '', subject: data.subject || 'mailto:admin@localhost' }) } } catch(e){} finally { setLoading(false) } })() }, [])
 
-  const save = async () => { await api.post('/api/push/config', form); alert('Saved'); }
+  const save = async () => { await api.post('/api/push/config', form); showSnackbar('Saved') }
 
   if (loading) return <Typography>Loading...</Typography>
 

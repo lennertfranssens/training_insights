@@ -21,9 +21,15 @@ public class QuestionnaireResponseService {
         return repo.findByUserAndTrainingAndQuestionnaire(user, training, questionnaire);
     }
 
-    public QuestionnaireResponse submit(User user, Training training, Questionnaire questionnaire, String responsesJson){
+    public Optional<QuestionnaireResponse> find(User user, Training training, Questionnaire questionnaire, String phase){
+        return repo.findByUserAndTrainingAndQuestionnaireAndPhase(user, training, questionnaire, phase);
+    }
+
+    public QuestionnaireResponse submit(User user, Training training, Questionnaire questionnaire, String phase, String responsesJson){
+        if (phase == null) phase = "DEFAULT";
+
         // If questionnaire is daily, allow only one submission per day per user; allow editing that submission on the same day
-        Optional<QuestionnaireResponse> existingOpt = find(user, training, questionnaire);
+    Optional<QuestionnaireResponse> existingOpt = find(user, training, questionnaire, phase);
         if (questionnaire.isDaily()){
             if (existingOpt.isPresent()){
                 QuestionnaireResponse existing = existingOpt.get();
@@ -40,6 +46,7 @@ public class QuestionnaireResponseService {
                     qr.setUser(user);
                     qr.setTraining(training);
                     qr.setQuestionnaire(questionnaire);
+                    qr.setPhase(phase);
                     qr.setResponses(responsesJson);
                     qr.setSubmittedAt(Instant.now());
                     return repo.save(qr);
@@ -49,6 +56,7 @@ public class QuestionnaireResponseService {
                 qr.setUser(user);
                 qr.setTraining(training);
                 qr.setQuestionnaire(questionnaire);
+                qr.setPhase(phase);
                 qr.setResponses(responsesJson);
                 qr.setSubmittedAt(Instant.now());
                 return repo.save(qr);
@@ -59,6 +67,7 @@ public class QuestionnaireResponseService {
         qr.setUser(user);
         qr.setTraining(training);
         qr.setQuestionnaire(questionnaire);
+        qr.setPhase(phase);
         qr.setResponses(responsesJson);
         qr.setSubmittedAt(Instant.now());
         return repo.save(qr);

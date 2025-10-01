@@ -31,7 +31,11 @@ export default function NotificationsInbox(){
       {shown.map(n=> (
         <div key={n.id} style={{border:'1px solid #ddd', padding:8, marginBottom:8, background: (n.isRead || n.read) ? '#fafafa':'#fff' }}>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-            <div style={{fontWeight:600}}>{n.title}{n.dispatched && <span style={{marginLeft:8, fontSize:11, color:'#666'}}>  sent {n.sentAt ? new Date(n.sentAt).toLocaleString() : ''}</span>}</div>
+            <div style={{fontWeight:600}}>
+              {n.title}
+              {n.targetLabel && <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>— {n.targetLabel}</span>}
+              {n.dispatched && <span style={{marginLeft:8, fontSize:11, color:'#666'}}>   sent {n.sentAt ? new Date(n.sentAt).toLocaleString() : ''}</span>}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div><small>{new Date(n.createdAt).toLocaleString()}</small></div>
               <div>

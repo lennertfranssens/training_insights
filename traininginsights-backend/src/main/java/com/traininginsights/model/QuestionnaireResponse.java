@@ -6,8 +6,8 @@ import java.time.Instant;
 
 @Entity
 @Table(name = "questionnaire_responses",
-        uniqueConstraints = @UniqueConstraint(name = "uq_user_training_questionnaire",
-                columnNames = {"user_id","training_id","questionnaire_id"}))
+    uniqueConstraints = @UniqueConstraint(name = "uq_user_training_questionnaire_phase",
+        columnNames = {"user_id","training_id","questionnaire_id","phase"}))
 public class QuestionnaireResponse {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -21,6 +21,9 @@ public class QuestionnaireResponse {
 
     @ManyToOne @JoinColumn(name = "questionnaire_id")
     private Questionnaire questionnaire;
+
+    // Phase distinguishes PRE/POST/DAILY responses when the same questionnaire is reused for multiple phases
+    private String phase;
 
     private Instant submittedAt;
 
@@ -39,6 +42,9 @@ public class QuestionnaireResponse {
 
     public Questionnaire getQuestionnaire() { return questionnaire; }
     public void setQuestionnaire(Questionnaire questionnaire) { this.questionnaire = questionnaire; }
+
+    public String getPhase() { return phase; }
+    public void setPhase(String phase) { this.phase = phase; }
 
     public Instant getSubmittedAt() { return submittedAt; }
     public void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }

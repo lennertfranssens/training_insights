@@ -61,8 +61,23 @@ public class UserService {
         if (patch.containsKey("lastName")) u.setLastName((String) patch.get("lastName"));
         if (patch.containsKey("email")) u.setEmail((String) patch.get("email"));
         if (patch.containsKey("birthDate")) {
-            String d = (String) patch.get("birthDate");
-            if (d != null) u.setBirthDate(LocalDate.parse(d));
+            Object bdObj = patch.get("birthDate");
+            if (bdObj == null) {
+                // explicit null -> clear birth date
+                u.setBirthDate(null);
+            } else {
+                String d = bdObj.toString();
+                if (d.isBlank()) {
+                    // empty string -> clear birth date
+                    u.setBirthDate(null);
+                } else {
+                    try {
+                        u.setBirthDate(LocalDate.parse(d));
+                    } catch (java.time.format.DateTimeParseException ex) {
+                        throw new IllegalArgumentException("Invalid birthDate format. Expected yyyy-MM-dd");
+                    }
+                }
+            }
         }
         if (patch.containsKey("athleteCategory")) {
             String ac = (String) patch.get("athleteCategory");

@@ -1,17 +1,19 @@
 import React, { useState } from 'react'
 import api from '../api/client'
 import { Paper, Button, Typography, Stack, Input } from '@mui/material'
+import { useSnackbar } from '../common/SnackbarProvider'
 
 export default function AdminBackupPage(){
   const [importResult, setImportResult] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const { showSnackbar } = useSnackbar()
 
   const download = async () => {
     try{
       const res = await api.get('/api/admin/backup/export', { responseType: 'blob' })
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/json' }))
       const a = document.createElement('a'); a.href = url; a.download = 'ti-backup.json'; document.body.appendChild(a); a.click(); a.remove();
-    }catch(e){ alert('Export failed') }
+  }catch(e){ showSnackbar('Export failed') }
   }
 
   const onFile = async (e) => {
@@ -22,7 +24,7 @@ export default function AdminBackupPage(){
     try{
       const { data } = await api.post('/api/admin/backup/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setImportResult(data)
-    }catch(e){ alert('Import failed: ' + (e.message || e)) }
+  }catch(e){ showSnackbar('Import failed: ' + (e.message || e)) }
     finally{ setUploading(false) }
   }
 

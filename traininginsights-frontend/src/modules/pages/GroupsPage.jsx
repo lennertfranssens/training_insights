@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Checkbox, ListItemText } from '@mui/material'
+import { useSnackbar } from '../common/SnackbarProvider'
 // Notification creation moved to CreateNotificationPage
 
 export default function GroupsPage(){
@@ -16,6 +17,8 @@ export default function GroupsPage(){
 
   const load = async () => { const [{data:groupsData},{data:clubsData},{data:usersData}] = await Promise.all([api.get('/api/groups'), api.get('/api/clubs'), api.get('/api/users')]); setGroups(groupsData || []); setClubs(clubsData || []); setUsers(usersData || []) }
   useEffect(()=>{ (async ()=>{ const {data:meData} = await api.get('/api/users/me'); setMe(meData); await load() })() }, [])
+
+  const { showSnackbar } = useSnackbar()
 
   const create = async () => {
     const payload = { name: form.name, clubIds: form.clubIds, trainerIds: form.trainerIds }
@@ -51,7 +54,13 @@ export default function GroupsPage(){
             </div>
             <div>
               <Button color="error" onClick={()=>remove(g.id)} sx={{ mr:1 }}>Delete</Button>
-              {(hasRole(auth?.roles || me?.roles, 'ROLE_TRAINER')) && <Button variant="outlined" onClick={()=> { alert('Use Create Notification page to send messages to groups') }}>Send to group</Button>}
+              {(hasRole(auth?.roles || me?.roles, 'ROLE_TRAINER')) && <Button variant="outlined" onClick={()=> {
+                // Prepare Create Notification page with the clubs for this group
+                try { sessionStorage.setItem('preselectedNotificationClubs', JSON.stringify(g.clubIds || [])) } catch(e) {}
+                // navigate to the correct dashboard tab depending on role: trainers -> tab 6 (trainer create), admins -> tab 7 (admin create)
+                const isTrainer = hasRole(auth?.roles || me?.roles, 'ROLE_TRAINER')
+                window.dispatchEvent(new CustomEvent('navigate-dashboard', { detail: { section: 'notifications', tab: isTrainer ? 6 : 7 } }))
+              }}>Send to group</Button>}
             </div>
           </Paper>
         ))}

@@ -27,9 +27,26 @@ public class AdminBackupController {
     }
 
     @PreAuthorize("hasRole('ROLE_SUPERADMIN')")
+    @GetMapping("/export-zip")
+    public ResponseEntity<byte[]> exportZip(){
+        byte[] data = backupService.exportAllZip();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=ti-backup.zip")
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .body(data);
+    }
+
+    @PreAuthorize("hasRole('ROLE_SUPERADMIN')")
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String,Object> importBackup(@RequestPart("file") MultipartFile file) throws Exception{
         byte[] data = file.getBytes();
         return backupService.importFromBytes(data);
+    }
+
+    @PreAuthorize("hasRole('ROLE_SUPERADMIN')")
+    @PostMapping(value = "/import-zip", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String,Object> importBackupZip(@RequestPart("file") MultipartFile file) throws Exception{
+        byte[] data = file.getBytes();
+        return backupService.importFromZip(data);
     }
 }

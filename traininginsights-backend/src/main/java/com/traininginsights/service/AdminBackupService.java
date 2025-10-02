@@ -9,6 +9,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+import java.util.zip.ZipInputStream;
 import java.util.*;
 
 @Service
@@ -23,10 +29,12 @@ public class AdminBackupService {
     private final QuestionnaireRepository questionnaireRepository;
     private final TrainingRepository trainingRepository;
     private final QuestionnaireResponseRepository questionnaireResponseRepository;
+    private final AttachmentRepository attachmentRepository;
+    private final String uploadsDir;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public AdminBackupService(RoleRepository roleRepository, ClubRepository clubRepository, GroupRepository groupRepository, SeasonRepository seasonRepository, UserRepository userRepository, MembershipRepository membershipRepository, NotificationRepository notificationRepository, QuestionnaireRepository questionnaireRepository, TrainingRepository trainingRepository, QuestionnaireResponseRepository questionnaireResponseRepository){
-        this.roleRepository = roleRepository; this.clubRepository = clubRepository; this.groupRepository = groupRepository; this.seasonRepository = seasonRepository; this.userRepository = userRepository; this.membershipRepository = membershipRepository; this.notificationRepository = notificationRepository; this.questionnaireRepository = questionnaireRepository; this.trainingRepository = trainingRepository; this.questionnaireResponseRepository = questionnaireResponseRepository;
+    public AdminBackupService(RoleRepository roleRepository, ClubRepository clubRepository, GroupRepository groupRepository, SeasonRepository seasonRepository, UserRepository userRepository, MembershipRepository membershipRepository, NotificationRepository notificationRepository, QuestionnaireRepository questionnaireRepository, TrainingRepository trainingRepository, QuestionnaireResponseRepository questionnaireResponseRepository, AttachmentRepository attachmentRepository, @org.springframework.beans.factory.annotation.Value("${app.uploadsDir:uploads}") String uploadsDir){
+        this.roleRepository = roleRepository; this.clubRepository = clubRepository; this.groupRepository = groupRepository; this.seasonRepository = seasonRepository; this.userRepository = userRepository; this.membershipRepository = membershipRepository; this.notificationRepository = notificationRepository; this.questionnaireRepository = questionnaireRepository; this.trainingRepository = trainingRepository; this.questionnaireResponseRepository = questionnaireResponseRepository; this.attachmentRepository = attachmentRepository; this.uploadsDir = uploadsDir;
     }
 
     public byte[] exportAll(){
@@ -186,6 +194,136 @@ public class AdminBackupService {
             for (BackupDtos.NotificationExport ne : pkg.notifications){ try{ Notification n = ne.id!=null? notificationRepository.findById(ne.id).orElse(new Notification()) : new Notification(); n.setSender(ne.senderId!=null? userMap.get(ne.senderId) : null); n.setRecipient(ne.recipientId!=null? userMap.get(ne.recipientId) : null); n.setClub(ne.clubId!=null? clubMap.get(ne.clubId) : null); n.setGroup(ne.groupId!=null? groupRepository.findById(ne.groupId).orElse(null) : null); n.setTitle(ne.title); n.setBody(ne.body); n.setRead(ne.isRead); n.setDispatched(ne.dispatched); n.setSentAt(ne.sentAt); notificationRepository.save(n);}catch(Exception ex){} }
 
             result.put("clubs", clubMap.size()); result.put("users", userMap.size()); result.put("memberships", pkg.memberships!=null?pkg.memberships.size():0); result.put("notifications", pkg.notifications!=null?pkg.notifications.size():0);
+            return result;
+        }catch(Exception e){ throw new RuntimeException(e); }
+    }
+
+    /**
+     * Produce a ZIP containing:
+     * - data.json: JSON export (same as exportAll())
+     * - attachments.json: metadata for attachments (id, trainingId, filename, contentType, relativePath)
+     * - uploads/...: all files under the configured uploads directory that are referenced by attachments
+     */
+    public byte[] exportAllZip(){
+        try{
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try (ZipOutputStream zos = new ZipOutputStream(baos)){
+                // 1) data.json
+                byte[] json = exportAll();
+                zos.putNextEntry(new ZipEntry("data.json"));
+                zos.write(json);
+                zos.closeEntry();
+
+                // 2) attachments.json
+                java.util.List<java.util.Map<String,Object>> meta = new java.util.ArrayList<>();
+                for (Attachment a : attachmentRepository.findAll()){
+                    java.util.Map<String,Object> m = new java.util.HashMap<>();
+                    m.put("id", a.getId());
+                    m.put("trainingId", a.getTraining()!=null ? a.getTraining().getId() : null);
+                    m.put("filename", a.getFilename());
+                    m.put("contentType", a.getContentType());
+                    // compute relative path
+                    Path base = Paths.get(uploadsDir).toAbsolutePath().normalize();
+                    String rel = null;
+                    try{
+                        Path p = a.getPath()!=null? Paths.get(a.getPath()).toAbsolutePath().normalize() : null;
+                        if (p != null && p.startsWith(base)){
+                            rel = base.relativize(p).toString().replace('\\','/');
+                        }
+                    }catch(Exception ignored){}
+                    m.put("relativePath", rel);
+                    meta.add(m);
+                }
+                byte[] metaJson = mapper.writeValueAsBytes(meta);
+                zos.putNextEntry(new ZipEntry("attachments.json"));
+                zos.write(metaJson);
+                zos.closeEntry();
+
+                // 3) files under uploads (only those referenced)
+                Path base = Paths.get(uploadsDir).toAbsolutePath().normalize();
+                for (Attachment a : attachmentRepository.findAll()){
+                    if (a.getPath() == null) continue;
+                    Path p = Paths.get(a.getPath()).toAbsolutePath().normalize();
+                    if (!p.startsWith(base) || !Files.exists(p)) continue;
+                    String rel = base.relativize(p).toString().replace('\\','/');
+                    String entryName = "uploads/" + rel;
+                    // ensure parent directories entries are created implicitly by ZipEntry paths
+                    zos.putNextEntry(new ZipEntry(entryName));
+                    try (InputStream in = Files.newInputStream(p)){
+                        in.transferTo(zos);
+                    }
+                    zos.closeEntry();
+                }
+            }
+            return baos.toByteArray();
+        }catch(IOException e){ throw new RuntimeException(e); }
+    }
+
+    @Transactional
+    public Map<String,Object> importFromZip(byte[] zipBytes){
+        try{
+            // Unpack zip into memory and process entries
+            byte[] dataJson = null;
+            Map<String,byte[]> files = new HashMap<>(); // entryName -> bytes
+            try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))){
+                ZipEntry e;
+                while ((e = zis.getNextEntry()) != null){
+                    if (e.isDirectory()) continue;
+                    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+                    zis.transferTo(buf);
+                    byte[] content = buf.toByteArray();
+                    if ("data.json".equals(e.getName())) dataJson = content; else files.put(e.getName(), content);
+                }
+            }
+            if (dataJson == null) throw new RuntimeException("ZIP missing data.json");
+
+            // First restore database from data.json (existing logic)
+            Map<String,Object> result = importFromBytes(dataJson);
+
+            // Then restore attachment files and rows if needed
+            // attachments.json describes metadata and relative paths; uploads/* contains actual files
+            byte[] metaBytes = files.get("attachments.json");
+            List<Map<String,Object>> metas = null;
+            if (metaBytes != null){
+                @SuppressWarnings("unchecked")
+                List<Map<String,Object>> parsed = mapper.readValue(metaBytes, List.class);
+                metas = parsed;
+            } else {
+                metas = List.of();
+            }
+
+            Path base = Paths.get(uploadsDir).toAbsolutePath().normalize();
+            Files.createDirectories(base);
+
+            // Copy files from uploads/ entries
+            for (Map.Entry<String,byte[]> en : files.entrySet()){
+                String name = en.getKey();
+                if (!name.startsWith("uploads/")) continue;
+                String rel = name.substring("uploads/".length());
+                Path dst = base.resolve(rel).normalize();
+                if (!dst.startsWith(base)) continue; // safety
+                Files.createDirectories(dst.getParent());
+                Files.write(dst, en.getValue(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            }
+
+            // Recreate or update Attachment entities based on metas; match by trainingId+filename when id not present
+            for (Map<String,Object> m : metas){
+                Long id = m.get("id") != null ? Long.valueOf(String.valueOf(m.get("id"))) : null;
+                Long trainingId = m.get("trainingId") != null ? Long.valueOf(String.valueOf(m.get("trainingId"))) : null;
+                String filename = (String) m.get("filename");
+                String contentType = (String) m.get("contentType");
+                String relativePath = (String) m.get("relativePath");
+                try{
+                    Attachment a = id!=null? attachmentRepository.findById(id).orElse(new Attachment()) : new Attachment();
+                    if (trainingId != null) trainingRepository.findById(trainingId).ifPresent(a::setTraining);
+                    a.setFilename(filename);
+                    a.setContentType(contentType);
+                    if (relativePath != null){ a.setPath(base.resolve(relativePath).normalize().toString()); }
+                    attachmentRepository.save(a);
+                }catch(Exception ignored){}
+            }
+
+            result.put("attachmentsRestored", metas.size());
             return result;
         }catch(Exception e){ throw new RuntimeException(e); }
     }

@@ -218,6 +218,73 @@ Notes:
 - Configure `VAPID_PUBLIC`/`VAPID_PRIVATE` if you enable push notifications.
 - Persist uploads by mounting a volume for the backend `APP_UPLOADS_DIR` (default `uploads`).
 
+## Backup and restore (superadmin)
+
+The app provides data-only JSON backups as well as full backups that include attachment files. These actions require the `ROLE_SUPERADMIN` role.
+
+### Export (download)
+
+- UI (recommended): Dashboard → Backup
+  - Download data only (JSON): exports database content as `ti-backup.json`.
+  - Download full backup (ZIP): exports `ti-backup.zip` with:
+    - `data.json` – full database export
+    - `attachments.json` – attachment metadata (id, trainingId, filename, contentType, relativePath)
+    - `uploads/` – all referenced attachment files
+
+- API (optional)
+  - Data only:
+    - GET `/api/admin/backup/export` → application/json
+  - Full backup:
+    - GET `/api/admin/backup/export-zip` → application/zip
+
+### Restore (upload)
+
+- UI (recommended): Dashboard → Backup → Upload backup to import (JSON or ZIP)
+  - JSON file imports database content only.
+  - ZIP file restores both database content and attachment files to the configured `app.uploadsDir`.
+
+- API (optional)
+  - Data only import: POST `/api/admin/backup/import` with `multipart/form-data` (field `file` = JSON)
+  - Full import: POST `/api/admin/backup/import-zip` with `multipart/form-data` (field `file` = ZIP)
+
+### Disaster recovery checklist
+
+1) Ensure persistent volumes are in place
+   - Database: your Postgres volume (data directory)
+   - Uploads: backend `app.uploadsDir` (default `uploads`) mounted as a volume
+
+2) Start database and backend with correct env
+   - `TI_JWT_SECRET` set (same secret or a compatible one)
+   - `SPRING_PROFILES_ACTIVE=docker` if using the Docker profile
+   - `APP_UPLOADS_DIR` pointing to the mounted volume path
+
+3) Log in as superadmin
+   - Default credentials: `superadmin@ti.local` / `superadmin` (rotate in production)
+
+4) Restore latest `ti-backup.zip`
+   - Dashboard → Backup → Upload backup → select ZIP
+   - Wait for completion; results summary is shown
+
+5) Validate
+   - Trainings present; attachments visible and downloadable
+   - Optional: Inspect `uploads/` volume contains files
+
+### Notes and limits
+
+- Import strategy is idempotent-ish: entities are inserted or updated by id when possible.
+- Attachment files are restored only under `app.uploadsDir` and paths are validated (no writes outside base directory).
+- Large backups: if you see payload size errors, increase multipart limits, e.g. in Spring config:
+  - `spring.servlet.multipart.max-file-size=512MB`
+  - `spring.servlet.multipart.max-request-size=512MB`
+- Automating backups: schedule the ZIP export and store off-site. Example (Docker host cron):
+
+```bash
+# Pseudo-example; ensure proper auth headers are used
+curl -H "Authorization: Bearer <SUPERADMIN_TOKEN>" \
+  -o /backups/ti-$(date +%F).zip \
+  http://backend:8080/api/admin/backup/export-zip
+```
+
 ## Architecture and object model
 
 The app is a classic React SPA + Spring Boot API with JWT auth. Below are concise schematics showing the domain objects and how requests flow through the system.

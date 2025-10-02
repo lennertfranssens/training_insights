@@ -353,7 +353,7 @@ Notes
 
 ```mermaid
 graph LR
-  FE[Frontend (React + Axios)] --> GW[Spring Security]
+  FE[Frontend in React + Axios] --> GW[Spring Security]
   GW --> F[JwtAuthenticationFilter]
   F --> C{Controllers}
   C --> S[Services]

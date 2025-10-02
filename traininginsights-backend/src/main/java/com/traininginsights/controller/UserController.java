@@ -29,6 +29,55 @@ public class UserController {
         return userService.all().stream().map(this::toDTO).collect(Collectors.toList());
     }
 
+    // Simple athlete search for trainers: q matches first/last/email contains (case-insensitive)
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN','TRAINER')")
+    @GetMapping("/search")
+    public List<UserDtos.UserDTO> search(@RequestParam(value = "q", required = false) String q){
+    String query = q == null ? "" : q.trim().toLowerCase();
+    String callerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+    User caller = userRepository.findByEmailIgnoreCase(callerEmail).orElseThrow();
+    java.util.Set<String> callerRoles = caller.getRoles().stream().map(r->r.getName().name()).collect(java.util.stream.Collectors.toSet());
+    boolean isAdmin = callerRoles.contains("ROLE_ADMIN") || callerRoles.contains("ROLE_SUPERADMIN");
+    java.util.Set<Long> callerClubIds = caller.getClubs().stream().map(c->c.getId()).collect(java.util.stream.Collectors.toSet());
+
+    return userService.all().stream()
+        .filter(u -> u.getRoles().stream().anyMatch(r->r.getName().name().equals("ROLE_ATHLETE")))
+        // name/email search
+        .filter(u -> query.isEmpty() ||
+            (u.getFirstName()!=null && u.getFirstName().toLowerCase().contains(query)) ||
+            (u.getLastName()!=null && u.getLastName().toLowerCase().contains(query)) ||
+            (u.getEmail()!=null && u.getEmail().toLowerCase().contains(query)))
+        // visibility filter for trainers: same clubs or trainer of athlete's group; admins see all
+        .filter(u -> {
+            if (isAdmin) return true;
+            boolean sharesClub = u.getClubs().stream().anyMatch(cl-> callerClubIds.contains(cl.getId()));
+            boolean trainerOfGroup = u.getGroupEntity() != null && u.getGroupEntity().getTrainers().stream().anyMatch(t-> t.getId().equals(caller.getId()));
+            return sharesClub || trainerOfGroup;
+        })
+        .limit(50)
+        .map(this::toDTO)
+        .collect(Collectors.toList());
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN','TRAINER')")
+    @GetMapping("/{id}")
+    public UserDtos.UserDTO byId(@PathVariable Long id){
+        User target = userRepository.findById(id).orElseThrow();
+        String callerEmail = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+        User caller = userRepository.findByEmailIgnoreCase(callerEmail).orElseThrow();
+        java.util.Set<String> callerRoles = caller.getRoles().stream().map(r->r.getName().name()).collect(java.util.stream.Collectors.toSet());
+        boolean isAdmin = callerRoles.contains("ROLE_ADMIN") || callerRoles.contains("ROLE_SUPERADMIN");
+        if (!isAdmin) {
+            // trainers may only consult athletes they train (group) or who share a club
+            boolean targetIsAthlete = target.getRoles().stream().anyMatch(r->r.getName().name().equals("ROLE_ATHLETE"));
+            if (!targetIsAthlete) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Trainers can only view athletes");
+            boolean sharesClub = caller.getClubs().stream().anyMatch(c -> target.getClubs().stream().anyMatch(uc -> uc.getId().equals(c.getId())));
+            boolean trainerOfGroup = target.getGroupEntity() != null && target.getGroupEntity().getTrainers().stream().anyMatch(t->t.getId().equals(caller.getId()));
+            if (!sharesClub && !trainerOfGroup) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Not allowed to view this athlete");
+        }
+        return toDTO(target);
+    }
+
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/me")
     public UserDtos.UserDTO me(){
@@ -98,6 +147,15 @@ public class UserController {
                 req.groupId, roles
         );
 
+    // set optional contact and reminder info
+    if (req.phone != null || req.address != null || req.dailyReminderTime != null) {
+        Map<String,Object> patch = new HashMap<>();
+        patch.put("phone", req.phone);
+        patch.put("address", req.address);
+        patch.put("dailyReminderTime", req.dailyReminderTime);
+        u = userService.updateUser(u.getId(), patch);
+    }
+
         // set clubs if provided
         if (req.clubIds != null && req.clubIds.length > 0){
             Set<com.traininginsights.model.Club> clubs = Arrays.stream(req.clubIds).map(i -> clubRepository.findById(i).orElseThrow()).collect(Collectors.toSet());
@@ -130,6 +188,10 @@ public class UserController {
             // trainers may only update athletes
             boolean targetIsAthlete = Arrays.stream(target.getRoles().stream().map(r->r.getName().name()).toArray(String[]::new)).anyMatch(r->r.equals(RoleName.ROLE_ATHLETE.name()));
             if (!targetIsAthlete) throw new SecurityException("Trainers can only modify athletes");
+            // trainers may only update athletes they train or share a club with
+            boolean sharesClub = target.getClubs().stream().anyMatch(cl-> callerClubIds.contains(cl.getId()));
+            boolean trainerOfGroup = target.getGroupEntity() != null && target.getGroupEntity().getTrainers().stream().anyMatch(t-> t.getId().equals(caller.getId()));
+            if (!sharesClub && !trainerOfGroup) throw new SecurityException("Not allowed to modify this athlete");
             // if clubs being changed, ensure they are subset of caller's clubs
             if (requestedClubIds != null) {
                 for (Long cid : requestedClubIds) if (!callerClubIds.contains(cid)) throw new SecurityException("Cannot assign user to clubs you are not part of");
@@ -168,6 +230,9 @@ public class UserController {
         patch.put("roleNames", req.roleNames);
         patch.put("clubIds", req.clubIds);
         patch.put("password", req.password);
+        patch.put("phone", req.phone);
+        patch.put("address", req.address);
+        patch.put("dailyReminderTime", req.dailyReminderTime);
         User u = userService.updateUser(id, patch);
         return toDTO(u);
     }

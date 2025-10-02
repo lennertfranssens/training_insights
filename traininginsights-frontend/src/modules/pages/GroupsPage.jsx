@@ -8,6 +8,7 @@ import { useSnackbar } from '../common/SnackbarProvider'
 export default function GroupsPage(){
   const [groups, setGroups] = useState([])
   const [open, setOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState({ name: '', clubIds: [], trainerIds: [] })
   const [clubs, setClubs] = useState([])
   const [users, setUsers] = useState([])
@@ -20,10 +21,14 @@ export default function GroupsPage(){
 
   const { showSnackbar } = useSnackbar()
 
-  const create = async () => {
+  const submit = async () => {
     const payload = { name: form.name, clubIds: form.clubIds, trainerIds: form.trainerIds }
-    await api.post('/api/groups', payload);
-    setOpen(false); setForm({ name:'', clubIds: [], trainerIds: [] }); await load()
+    if (editingId){
+      await api.put(`/api/groups/${editingId}`, payload)
+    } else {
+      await api.post('/api/groups', payload)
+    }
+    setOpen(false); setEditingId(null); setForm({ name:'', clubIds: [], trainerIds: [] }); await load()
   }
   const remove = async (id) => { if (!confirm('Delete group?')) return; await api.delete(`/api/groups/${id}`); await load() }
 
@@ -43,7 +48,14 @@ export default function GroupsPage(){
     <Paper sx={{ p:2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb:2 }}>
         <Typography variant="h6">Groups</Typography>
-        <Button variant="contained" onClick={()=>{ setForm({ name:'', clubIds: [], trainerIds: [] }); setOpen(true); }}>Create</Button>
+        <Button
+          variant="contained"
+          onClick={()=>{
+            const isTrainer = (me?.roles || []).some(r => r === 'ROLE_TRAINER' || r === 'TRAINER')
+            setForm({ name:'', clubIds: [], trainerIds: isTrainer && me?.id ? [me.id] : [] })
+            setEditingId(null); setOpen(true)
+          }}
+        >Create</Button>
       </Stack>
       <Stack spacing={1}>
         {groups.map(g => (
@@ -53,7 +65,12 @@ export default function GroupsPage(){
               <Typography variant="body2">Clubs: {(g.clubIds || []).map(cid => (clubs.find(c=>c.id===cid)?.name) || cid).join(', ')}</Typography>
             </div>
             <div>
-              <Button color="error" onClick={()=>remove(g.id)} sx={{ mr:1 }}>Delete</Button>
+              {(hasRole(auth?.roles || me?.roles, 'ROLE_ADMIN') || hasRole(auth?.roles || me?.roles, 'ROLE_TRAINER')) && (
+                <Button onClick={()=>{ setEditingId(g.id); setForm({ name: g.name, clubIds: g.clubIds || [], trainerIds: g.trainerIds || [] }); setOpen(true) }} sx={{ mr:1 }}>Edit</Button>
+              )}
+              {(hasRole(auth?.roles || me?.roles, 'ROLE_ADMIN') || hasRole(auth?.roles || me?.roles, 'ROLE_TRAINER')) && (
+                <Button color="error" onClick={()=>remove(g.id)} sx={{ mr:1 }}>Delete</Button>
+              )}
               {(hasRole(auth?.roles || me?.roles, 'ROLE_TRAINER')) && <Button variant="outlined" onClick={()=> {
                 // Prepare Create Notification page with the clubs for this group
                 try { sessionStorage.setItem('preselectedNotificationClubs', JSON.stringify(g.clubIds || [])) } catch(e) {}
@@ -65,8 +82,8 @@ export default function GroupsPage(){
           </Paper>
         ))}
       </Stack>
-      <Dialog open={open} onClose={()=>setOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create Group</DialogTitle>
+      <Dialog open={open} onClose={()=>{ setOpen(false); setEditingId(null) }} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingId ? 'Edit Group' : 'Create Group'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt:1 }}>
             <TextField label="Name" value={form.name} onChange={e=>setForm({...form, name: e.target.value})} />
@@ -84,8 +101,8 @@ export default function GroupsPage(){
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={()=>setOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={create}>Create</Button>
+          <Button onClick={()=>{ setOpen(false); setEditingId(null) }}>Cancel</Button>
+          <Button variant="contained" onClick={submit}>{editingId ? 'Save' : 'Create'}</Button>
         </DialogActions>
       </Dialog>
       <div style={{ marginTop: 12 }}>

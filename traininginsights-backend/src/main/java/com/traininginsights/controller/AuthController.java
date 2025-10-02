@@ -10,7 +10,6 @@ import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -40,8 +39,8 @@ public class AuthController {
 
     @PostMapping("/signin")
     public ResponseEntity<AuthDtos.AuthResponse> signin(@RequestBody @Valid AuthDtos.SigninRequest request) {
-        Authentication auth = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.email, request.password));
+    authenticationManager.authenticate(
+        new UsernamePasswordAuthenticationToken(request.email, request.password));
         User user = userRepository.findByEmailIgnoreCase(request.email).orElseThrow();
         var roleNames = user.getRoles().stream().map(r -> r.getName().name()).toArray(String[]::new);
         var claims = new HashMap<String,Object>();

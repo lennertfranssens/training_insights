@@ -43,6 +43,10 @@ public class TrainingService {
         return repo.findUpcomingForGroup(group, Instant.now());
     }
 
+    public List<Training> allForGroup(Group group){
+        return repo.findAllForGroup(group);
+    }
+
     public Training assignGroups(Long trainingId, Set<Long> groupIds){
         Training t = get(trainingId);
         Set<Group> gs = new HashSet<>(groupRepo.findAllById(groupIds));

@@ -43,6 +43,15 @@ public class AthleteController {
         return trainingService.upcomingForGroup(g);
     }
 
+    @GetMapping("/trainings/all")
+    @Transactional(readOnly = true)
+    public List<Training> allTrainings(Authentication auth){
+        User athlete = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        Group g = athlete.getGroupEntity();
+        if (g == null) return List.of();
+        return trainingService.allForGroup(g);
+    }
+
     @GetMapping("/questionnaires/pending")
     @Transactional(readOnly = true)
     public List<Map<String,Object>> pendingQuestionnaires(Authentication auth){
@@ -108,6 +117,7 @@ public class AthleteController {
         res.put("id", t.getId());
         res.put("title", t.getTitle());
         res.put("trainingTime", t.getTrainingTime());
+    res.put("trainingEndTime", t.getTrainingEndTime());
         res.put("visibleToAthletes", t.isVisibleToAthletes());
         res.put("groups", t.getGroups());
         // If training is visible to athletes, include description and questionnaires

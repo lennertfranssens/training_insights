@@ -30,6 +30,10 @@ public class Notification {
     private boolean dispatched = false;
     private Instant sentAt;
 
+    // optional context for deep-linking
+    private Long trainingId;
+    private Long questionnaireId;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public User getSender() { return sender; }
@@ -52,4 +56,8 @@ public class Notification {
     public void setDispatched(boolean dispatched) { this.dispatched = dispatched; }
     public Instant getSentAt() { return sentAt; }
     public void setSentAt(Instant sentAt) { this.sentAt = sentAt; }
+    public Long getTrainingId() { return trainingId; }
+    public void setTrainingId(Long trainingId) { this.trainingId = trainingId; }
+    public Long getQuestionnaireId() { return questionnaireId; }
+    public void setQuestionnaireId(Long questionnaireId) { this.questionnaireId = questionnaireId; }
 }

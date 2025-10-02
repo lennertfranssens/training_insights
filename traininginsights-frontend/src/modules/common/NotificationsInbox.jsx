@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { Paper, Stack, Typography, IconButton, List, ListItem, ListItemText, ListItemSecondaryAction, Button, Switch, FormControlLabel, Dialog, DialogTitle, DialogContent, DialogActions, Pagination, Select, MenuItem, Chip } from '@mui/material'
+import { useNavigate } from 'react-router-dom'
 import MarkEmailReadIcon from '@mui/icons-material/MarkEmailRead'
 import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread'
 
@@ -12,6 +13,7 @@ export default function NotificationsInbox(){
   const [totalPages, setTotalPages] = useState(1)
   const [detailOpen, setDetailOpen] = useState(false)
   const [active, setActive] = useState(null)
+  const navigate = useNavigate()
 
   const load = async (p = page, size = pageSize) => {
     try {
@@ -19,11 +21,26 @@ export default function NotificationsInbox(){
       const { data } = await api.get('/api/notifications', { params: { page: p - 1, size } })
       // if backend returns a page object (content/totalPages) use it
       if (data && data.content) {
-        setNotifications(data.content || [])
+        const content = data.content || []
+        // sort unread first, then by createdAt desc
+        content.sort((a,b)=>{
+          const ar = !!(a.isRead || a.read); const br = !!(b.isRead || b.read)
+          if (ar !== br) return ar ? 1 : -1
+          const at = a.createdAt ? new Date(a.createdAt).getTime() : 0
+          const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0
+          return bt - at
+        })
+        setNotifications(content)
         setTotalPages(data.totalPages || 1)
       } else if (Array.isArray(data)) {
         // fallback: client-side paginate
-        const arr = data || []
+        const arr = (data || []).slice().sort((a,b)=>{
+          const ar = !!(a.isRead || a.read); const br = !!(b.isRead || b.read)
+          if (ar !== br) return ar ? 1 : -1
+          const at = a.createdAt ? new Date(a.createdAt).getTime() : 0
+          const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0
+          return bt - at
+        })
         setTotalPages(Math.max(1, Math.ceil(arr.length / size)))
         const start = (p - 1) * size
         setNotifications(arr.slice(start, start + size))
@@ -33,7 +50,7 @@ export default function NotificationsInbox(){
     } catch (e) { /* ignore */ }
   }
 
-  useEffect(()=>{ load(); const handler = ()=> load(); window.addEventListener('notifications-updated', handler); return ()=> window.removeEventListener('notifications-updated', handler) }, [page, pageSize])
+  useEffect(()=>{ load(); const handler = ()=> load(); window.addEventListener('notifications-updated', handler); const iv = setInterval(load, 15000); return ()=> { window.removeEventListener('notifications-updated', handler); clearInterval(iv) } }, [page, pageSize])
 
   const toggleRead = async (id, markRead) => {
     try {
@@ -63,6 +80,14 @@ export default function NotificationsInbox(){
       <List>
         {(notifications || [])
           .filter(n => !onlyUnread || !(n.isRead || n.read))
+          // ensure displayed page keeps ordering: unread first, newest first
+          .sort((a,b)=>{
+            const ar = !!(a.isRead || a.read); const br = !!(b.isRead || b.read)
+            if (ar !== br) return ar ? 1 : -1
+            const at = a.createdAt ? new Date(a.createdAt).getTime() : 0
+            const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0
+            return bt - at
+          })
           .map(n => {
             const read = !!(n.isRead || n.read)
             return (
@@ -75,6 +100,12 @@ export default function NotificationsInbox(){
                   <IconButton onClick={()=>toggleRead(n.id, !read)} title={read ? 'Mark unread' : 'Mark read'}>
                     {read ? <MarkEmailReadIcon /> : <MarkEmailUnreadIcon />}
                   </IconButton>
+                  {n.trainingId && (
+                    <Button size="small" sx={{ ml: 1 }} onClick={(e)=>{ e.stopPropagation(); navigate('/dashboard/athlete/trainings') }}>View training</Button>
+                  )}
+                  {n.questionnaireId && (
+                    <Button size="small" variant="contained" sx={{ ml: 1 }} onClick={(e)=>{ e.stopPropagation(); navigate('/dashboard/athlete/questionnaires') }}>Open questionnaire</Button>
+                  )}
                 </ListItemSecondaryAction>
               </ListItem>
             )

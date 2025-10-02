@@ -42,7 +42,7 @@ public class NotificationService {
             var subs = pushRepo.findByUser(r);
             for (var sub : subs){
                 try {
-                    pushService.sendNotification(sub, title + "\n" + (body == null ? "" : body));
+                    pushService.sendNotification(sub, title, body, "/dashboard/notifications");
                     saved.setDispatched(true);
                     saved.setSentAt(Instant.now());
                     notificationRepository.save(saved);
@@ -61,7 +61,26 @@ public class NotificationService {
             var subs = pushRepo.findByUser(r);
             for (var sub : subs){
                 try {
-                    pushService.sendNotification(sub, title + "\n" + (body == null ? "" : body));
+                    pushService.sendNotification(sub, title, body, "/dashboard/notifications");
+                    saved.setDispatched(true);
+                    saved.setSentAt(Instant.now());
+                    notificationRepository.save(saved);
+                } catch (Exception ignored) { }
+            }
+        } catch (Exception ignored) {}
+        return saved;
+    }
+
+    // convenience for training/questionnaire-context notifications
+    public Notification createSystemNotificationForUser(Long recipientId, String title, String body, Long trainingId, Long questionnaireId){
+        User r = userRepository.findById(recipientId).orElseThrow();
+        Notification n = new Notification(); n.setRecipient(r); n.setTitle(title); n.setBody(body); n.setTrainingId(trainingId); n.setQuestionnaireId(questionnaireId);
+        Notification saved = notificationRepository.save(n);
+        try {
+            var subs = pushRepo.findByUser(r);
+            for (var sub : subs){
+                try {
+                    pushService.sendNotification(sub, title, body, "/dashboard/notifications");
                     saved.setDispatched(true);
                     saved.setSentAt(Instant.now());
                     notificationRepository.save(saved);
@@ -106,7 +125,7 @@ public class NotificationService {
                 try {
                     var subs = pushRepo.findByUser(u);
                     for (var sub : subs){
-                        try { pushService.sendNotification(sub, title + "\n" + (body == null ? "" : body)); anyDispatched = true; } catch (Exception ignored) {}
+                        try { pushService.sendNotification(sub, title, body, "/dashboard/notifications"); anyDispatched = true; } catch (Exception ignored) {}
                     }
                 } catch (Exception ignored) {}
                 if (anyDispatched){ saved.setDispatched(true); saved.setSentAt(java.time.Instant.now()); notificationRepository.save(saved); }
@@ -135,7 +154,7 @@ public class NotificationService {
                 Notification saved = notificationRepository.save(n);
                 try {
                     var subs = pushRepo.findByUser(u);
-                    for (var sub : subs){ try { pushService.sendNotification(sub, title + "\n" + (body == null ? "" : body)); anyDispatched = true; } catch (Exception ignored){} }
+                    for (var sub : subs){ try { pushService.sendNotification(sub, title, body, "/dashboard/notifications"); anyDispatched = true; } catch (Exception ignored){} }
                 } catch (Exception ignored) {}
                 if (anyDispatched){ saved.setDispatched(true); saved.setSentAt(java.time.Instant.now()); notificationRepository.save(saved); }
                 results.add(new SendResult(u.getId(), u.getEmail(), saved.getId(), saved.isDispatched(), null, groupId, "group"));

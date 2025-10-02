@@ -5,8 +5,8 @@ import { useAuth } from './AuthContext'
 export default function Login(){
   const { signin } = useAuth()
   const nav = useNavigate()
-  const [email, setEmail] = useState('superadmin@ti.local')
-  const [password, setPassword] = useState('superadmin')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const onSubmit = async (e) => {
     e.preventDefault(); setError('')

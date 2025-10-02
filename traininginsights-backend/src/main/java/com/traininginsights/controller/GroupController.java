@@ -55,6 +55,12 @@ public class GroupController {
             Set<User> trainers = Arrays.stream(req.trainerIds).map(i -> userRepository.findById(i).orElseThrow()).collect(Collectors.toSet());
             g.setTrainers(trainers);
         }
+        // Auto-assign the creating trainer to the group
+        boolean callerIsTrainer = caller.getRoles().stream().anyMatch(r->r.getName().name().equals("ROLE_TRAINER"));
+        if (callerIsTrainer) {
+            if (g.getTrainers() == null) g.setTrainers(new java.util.HashSet<>());
+            g.getTrainers().add(caller);
+        }
         // validate clubs subset for non-super
         if (!isSuper && g.getClubs() != null) {
             for (com.traininginsights.model.Club c : g.getClubs()) if (!callerClubIds.contains(c.getId())) throw new SecurityException("Cannot assign group to clubs you are not part of");

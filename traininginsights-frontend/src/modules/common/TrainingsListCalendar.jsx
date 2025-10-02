@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
@@ -11,6 +11,8 @@ export default function TrainingsListCalendar({
   viewMode: propViewMode,
   onViewModeChange,
   viewModeKey = 'trainings.viewMode',
+  // optional initial date for calendar view (e.g., to jump to most relevant month)
+  initialDate,
   onEventClick, // (trainingId, training) => void
   onDateClick, // (date) => void
   renderActions, // (training) => JSX actions
@@ -28,10 +30,18 @@ export default function TrainingsListCalendar({
     try { window.localStorage.setItem(viewModeKey, v) } catch(e){}
   }
 
+  // Keep a ref to FullCalendar to be able to programmatically change the visible date
+  const calendarRef = useRef(null)
+  useEffect(()=>{
+    if (initialDate && calendarRef.current && viewMode === 'calendar'){
+      try { calendarRef.current.getApi().gotoDate(initialDate) } catch(e){}
+    }
+  }, [initialDate, viewMode])
+
   return (
     <div>
       {viewMode === 'calendar' ? (
-        <FullCalendar plugins={[dayGridPlugin, interactionPlugin]} initialView="dayGridMonth" height="auto"
+        <FullCalendar ref={calendarRef} plugins={[dayGridPlugin, interactionPlugin]} initialView="dayGridMonth" height="auto" initialDate={initialDate}
           events={(trainings||[]).map(t => ({ id: t.id, title: t.title, start: t.trainingTime }))}
           eventContent={(arg)=>{
             // arg.event.id corresponds to training id

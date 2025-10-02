@@ -1,12 +1,19 @@
 import React, {useEffect, useState} from 'react'
 import api from '../api/client'
 import { Button, ToggleButton, ToggleButtonGroup, Snackbar, Chip } from '@mui/material'
+import { useNavigate } from 'react-router-dom'
 
 export default function NotificationsInbox(){
   const [list, setList] = useState([])
   const [filter, setFilter] = useState('all')
   const [snack, setSnack] = useState({open:false,msg:''})
-  useEffect(()=>{ load() ; window.addEventListener('notifications-updated', load); return ()=> window.removeEventListener('notifications-updated', load) },[])
+  const navigate = useNavigate()
+  useEffect(()=>{
+    load();
+    window.addEventListener('notifications-updated', load)
+    const iv = setInterval(load, 15000)
+    return ()=> { window.removeEventListener('notifications-updated', load); clearInterval(iv) }
+  },[])
   const load = ()=> api.get('/api/notifications').then(r=> setList(r.data)).catch(()=>{})
 
   const toggleRead = async (id, to) => {
@@ -18,7 +25,15 @@ export default function NotificationsInbox(){
     } catch(e){ setSnack({open:true,msg:'Failed'}) }
   }
 
-  const shown = list.filter(n => filter === 'all' ? true : !(n.isRead || n.read))
+  // derive display list: unread first (newest->oldest), then read (newest->oldest)
+  const sorted = [...list].sort((a,b)=>{
+    const ar = !!(a.isRead || a.read); const br = !!(b.isRead || b.read)
+    if (ar !== br) return ar ? 1 : -1 // unread first
+    const at = a.createdAt ? new Date(a.createdAt).getTime() : 0
+    const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0
+    return bt - at // newest first
+  })
+  const shown = sorted.filter(n => filter === 'all' ? true : !(n.isRead || n.read))
 
   return (
     <div>
@@ -44,7 +59,13 @@ export default function NotificationsInbox(){
             </div>
           </div>
           <div style={{marginTop:6}}>{n.body}</div>
-          <div style={{marginTop:8}}>
+          <div style={{marginTop:8, display:'flex', gap:8, flexWrap:'wrap'}}>
+            {n.trainingId && (
+              <Button size="small" variant="outlined" onClick={()=> navigate('/dashboard/athlete/trainings')}>View training</Button>
+            )}
+            {n.questionnaireId && (
+              <Button size="small" variant="contained" onClick={()=> navigate('/dashboard/athlete/questionnaires')}>Open questionnaire</Button>
+            )}
             {(() => {
               const read = !!(n.isRead || n.read)
               return read ? <Button size="small" onClick={()=>toggleRead(n.id, false)}>Mark unread</Button> : <Button size="small" onClick={()=>toggleRead(n.id, true)}>Mark read</Button>

@@ -1,6 +1,7 @@
 package com.traininginsights.controller;
 
 import com.traininginsights.model.PushSubscription;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.traininginsights.model.User;
 import com.traininginsights.repository.PushSubscriptionRepository;
 import com.traininginsights.repository.UserRepository;
@@ -17,18 +18,31 @@ public class PushController {
     private final PushSubscriptionRepository repo;
     private final UserRepository userRepository;
     private final PushService pushService;
+    private final ObjectMapper objectMapper;
 
-    public PushController(PushSubscriptionRepository repo, UserRepository userRepository, PushService pushService){ this.repo = repo; this.userRepository = userRepository; this.pushService = pushService; }
+    public PushController(PushSubscriptionRepository repo, UserRepository userRepository, PushService pushService, ObjectMapper objectMapper){ this.repo = repo; this.userRepository = userRepository; this.pushService = pushService; this.objectMapper = objectMapper; }
+
+    public static class SubscribePayload {
+        public String endpoint;
+        public java.util.Map<String,String> keys; // { p256dh, auth }
+        public String getEndpoint(){ return endpoint; }
+        public void setEndpoint(String e){ this.endpoint = e; }
+        public java.util.Map<String,String> getKeys(){ return keys; }
+        public void setKeys(java.util.Map<String,String> k){ this.keys = k; }
+    }
 
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/subscribe")
-    public PushSubscription subscribe(@RequestBody PushSubscription payload){
+    public PushSubscription subscribe(@RequestBody SubscribePayload payload){
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         User u = userRepository.findByEmailIgnoreCase(email).orElseThrow();
         PushSubscription s = new PushSubscription();
         s.setUser(u);
         s.setEndpoint(payload.getEndpoint());
-        s.setKeys(payload.getKeys());
+        try {
+            String keysJson = payload.getKeys() == null ? null : objectMapper.writeValueAsString(payload.getKeys());
+            s.setKeys(keysJson);
+        } catch (Exception e){ s.setKeys(null); }
         return pushService.save(s);
     }
 

@@ -14,6 +14,9 @@ public interface TrainingRepository extends JpaRepository<Training, Long> {
     @Query("select t from Training t join t.groups g where g = :group and t.trainingTime >= :from order by t.trainingTime asc")
     List<Training> findUpcomingForGroup(@Param("group") Group group, @Param("from") Instant from);
 
+    @Query("select t from Training t join t.groups g where g = :group order by t.trainingTime desc")
+    List<Training> findAllForGroup(@Param("group") Group group);
+
     // Find all trainings that are associated with the given group id
     List<Training> findByGroups_Id(Long groupId);
 

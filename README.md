@@ -37,6 +37,17 @@ docker compose down
 
 Note: there are also nested `docker-compose.yml` files in both `traininginsights-backend/` and `traininginsights-frontend/` if you want to run services individually.
 
+## Default admin credentials
+
+On backend startup, a default superadmin account is created for initial access and demo purposes:
+
+- Email: `superadmin@ti.local`
+- Password: `superadmin`
+
+Security note:
+- Change this password immediately after first login in any non-demo environment.
+- Consider disabling the auto-creation in production or rotating credentials via your secrets management.
+
 ## Build & run locally (development)
 
 Backend (Java / Spring Boot):
@@ -111,3 +122,235 @@ Attachments uploaded for trainings are stored under the configured uploads direc
 - To run backend tests: `mvn test` from `traininginsights-backend/`.
 - Frontend port (dev server) is configurable in `vite.config.js`.
 - API base paths are under `/api/*`.
+
+## Build and push Docker images
+
+You can build and publish images for both services to Docker Hub.
+
+Prerequisites:
+- Docker installed and running
+- A Docker Hub account and you are logged in (`docker login`)
+
+Replace `YOUR_DOCKERHUB_USERNAME` and `TAG` (e.g., `v0.1.0` or `latest`). Run commands from the repository root unless noted.
+
+Backend image (Spring Boot):
+
+```bash
+docker login
+
+docker build -t YOUR_DOCKERHUB_USERNAME/traininginsights-backend:TAG traininginsights-backend
+
+docker push YOUR_DOCKERHUB_USERNAME/traininginsights-backend:TAG
+```
+
+Frontend image (React + NGINX):
+
+```bash
+docker build -t YOUR_DOCKERHUB_USERNAME/traininginsights-frontend:TAG traininginsights-frontend
+
+docker push YOUR_DOCKERHUB_USERNAME/traininginsights-frontend:TAG
+```
+
+Optional: multi-architecture builds (arm64 + amd64) using Buildx (useful on Apple Silicon):
+
+Backend:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t YOUR_DOCKERHUB_USERNAME/traininginsights-backend:TAG \
+  traininginsights-backend --push
+```
+
+Frontend:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t YOUR_DOCKERHUB_USERNAME/traininginsights-frontend:TAG \
+  traininginsights-frontend --push
+```
+
+Compose-based alternative: declare image tags in `docker-compose.yml` and use Compose to build/push.
+
+1) Add under each service:
+
+```yaml
+services:
+  backend:
+    image: YOUR_DOCKERHUB_USERNAME/traininginsights-backend:TAG
+    build:
+      context: ./traininginsights-backend
+      dockerfile: Dockerfile
+  frontend:
+    image: YOUR_DOCKERHUB_USERNAME/traininginsights-frontend:TAG
+    build:
+      context: ./traininginsights-frontend
+```
+
+2) Build and push:
+
+```bash
+docker login
+docker compose build
+docker compose push
+```
+
+Run the pushed images directly (example):
+
+```bash
+# Backend
+docker run -p 8080:8080 --name ti-backend \
+  -e DB_HOST=db.host \
+  -e DB_PORT=5432 \
+  -e DB_NAME=traininginsights \
+  -e DB_USER=postgres \
+  -e DB_PASS=postgres \
+  -e TI_JWT_SECRET="super-long-secret" \
+  -e SPRING_PROFILES_ACTIVE=docker \
+  YOUR_DOCKERHUB_USERNAME/traininginsights-backend:TAG
+
+# Frontend
+docker run -p 3000:80 --name ti-frontend \
+  -e VITE_API_BASE=/api \
+  YOUR_DOCKERHUB_USERNAME/traininginsights-frontend:TAG
+```
+
+Notes:
+- Configure `VAPID_PUBLIC`/`VAPID_PRIVATE` if you enable push notifications.
+- Persist uploads by mounting a volume for the backend `APP_UPLOADS_DIR` (default `uploads`).
+
+## Architecture and object model
+
+The app is a classic React SPA + Spring Boot API with JWT auth. Below are concise schematics showing the domain objects and how requests flow through the system.
+
+### Domain model (ERD-style)
+
+```mermaid
+classDiagram
+  class User {
+    +Long id
+    +String email
+    +String firstName
+    +String lastName
+    +LocalDate birthDate
+    +Set<Role> roles
+    +Set<Club> clubs
+  }
+
+  class Role {
+    +RoleName name  // ROLE_ATHLETE | ROLE_TRAINER | ROLE_ADMIN | ROLE_SUPERADMIN
+  }
+
+  class Club {
+    +Long id
+    +String name
+  }
+
+  class Group {
+    +Long id
+    +String name
+    +Set<User> trainers
+    +Set<User> athletes
+    +Set<Club> clubs
+  }
+
+  class Training {
+    +Long id
+    +Instant trainingTime
+    +Instant trainingEndTime
+    +Questionnaire preQuestionnaire
+    +Questionnaire postQuestionnaire
+    +Set<Group> groups
+  }
+
+  class TrainingAttendance {
+    +Long id
+    +boolean present
+  }
+
+  class Questionnaire {
+    +Long id
+    +String name
+    +String schema // JSON definition of fields
+  }
+
+  class QuestionnaireResponse {
+    +Long id
+    +String responses // JSON
+    +Instant submittedAt
+    +String phase // pre | post
+  }
+
+  class Season {
+    +Long id
+    +String name
+    +Instant start
+    +Instant end
+  }
+
+  class Goal {
+    +Long id
+    +String title
+    +String description
+    +String status // active | completed | archived
+  }
+
+  User "*" -- "*" Role
+  User "*" -- "*" Club
+  Group "*" -- "*" Club
+  Group "*" -- "*" User : trainers
+  Group "*" -- "*" User : athletes
+  Training "*" -- "*" Group
+  Training "1" -- "*" TrainingAttendance
+  Training "1" -- "*" QuestionnaireResponse
+  Questionnaire "1" -- "0..*" Training : pre/post
+  User "1" -- "*" QuestionnaireResponse
+  User "1" -- "*" TrainingAttendance
+  Season "1" -- "*" Training
+  User "1" -- "*" Goal
+```
+
+Notes
+- Groups can have multiple trainers and belong to multiple clubs. Athletes are members of groups.
+- A training targets one or more groups; roster is the union of those groups’ athletes. Presence is tracked per (training, user) in TrainingAttendance.
+- Pre/post questionnaires are optional; responses are JSON documents keyed by field name (numeric fields power analytics).
+- Seasons group trainings over time; goals are scoped to users (with optional progress notion in the UI).
+
+### Request flow and security
+
+```mermaid
+flowchart LR
+  FE[Frontend (React + Axios)] -->|/api/* with Authorization: Bearer| GW[Spring Security]
+  GW --> F[JwtAuthenticationFilter]
+  F --> C{Controllers}
+  C --> S[Services]
+  S --> R[Repositories]
+  R --> DB[(PostgreSQL)]
+```
+
+Key rules
+- JWT roles: ROLE_ATHLETE, ROLE_TRAINER, ROLE_ADMIN, ROLE_SUPERADMIN.
+- Trainers only see trainings of groups they train; athletes see their group’s trainings; admins/superadmins see all.
+- Analytics scoping: when a trainer omits `groupId`, results are limited to the groups they train. When `groupId` is specified, the trainer must be assigned to that group.
+- Group management: admins of a group’s clubs or trainers already assigned to the group can edit trainers on the Groups page.
+
+### How core features work together
+
+- Create/edit training
+  - Trainer/admin creates a training and selects target groups.
+  - Roster derives from the union of selected groups’ athletes.
+  - Optional pre/post questionnaires are attached.
+
+- Attendance (roster toggles)
+  - UI lists eligible athletes; toggles write `TrainingAttendance` records.
+  - Presence analytics compute rate = present / eligible for the selected dimension and period.
+
+- Questionnaire analytics
+  - Responses store numeric fields in `QuestionnaireResponse.responses` (JSON).
+  - Aggregations run in-memory or via optimized JSON SQL, grouped by athlete/group/club/age and day/week/month/training.
+
+- Notifications
+  - Admins/trainers compose notifications to selected groups/clubs; the backend fan-outs to users and optionally Web Push (if VAPID configured).
+
+Frontend navigation (selected)
+- Admins: Clubs, Admins, Trainers, Athletes, Club Members, Push Config, SMTP, Seasons, Notifications, Create Notification, Groups.
+- Trainers: Groups, Athletes, Trainings, Questionnaires, Goals, Analytics, Notifications, Create Notification.

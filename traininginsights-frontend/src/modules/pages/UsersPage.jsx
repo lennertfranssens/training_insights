@@ -5,8 +5,10 @@ const allRoles = ['ROLE_ATHLETE','ROLE_TRAINER','ROLE_ADMIN']
 export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' }){
   const [users, setUsers] = useState([])
   const [open, setOpen] = useState(false)
+  const [viewOpen, setViewOpen] = useState(false)
+  const [viewUser, setViewUser] = useState(null)
   const [editingUser, setEditingUser] = useState(null)
-  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], birthDate:'', athleteCategory: 'SENIOR' })
+  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], birthDate:'', athleteCategory: 'SENIOR', phone:'', address:'' })
   const [clubs, setClubs] = useState([])
   const [me, setMe] = useState(null)
   const [groups, setGroups] = useState([])
@@ -18,7 +20,7 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
     const payload = { ...form }
     await api.post('/api/users', payload)
     setOpen(false); setEditingUser(null)
-    setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], groupId: null, birthDate:'', athleteCategory:'SENIOR' })
+  setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], groupId: null, birthDate:'', athleteCategory:'SENIOR', phone:'', address:'' })
     await load()
   }
 
@@ -30,7 +32,7 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
       await api.post('/api/users', payload)
     }
     setOpen(false); setEditingUser(null)
-    setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], groupId: null, birthDate:'', athleteCategory:'SENIOR' })
+  setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], groupId: null, birthDate:'', athleteCategory:'SENIOR', phone:'', address:'' })
     await load()
   }
   const remove = async (id) => { if (!confirm('Delete user?')) return; await api.delete(`/api/users/${id}`); await load() }
@@ -57,6 +59,13 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
               </Stack>
             </div>
             <Stack direction="row" spacing={1}>
+              <Button onClick={async()=>{
+                try {
+                  // Fetch with server-side permission checks (trainers restricted to their athletes)
+                  const { data } = await api.get(`/api/users/${u.id}`)
+                  setViewUser(data); setViewOpen(true)
+                } catch(e) { /* ignore */ }
+              }}>View</Button>
               <Button variant="outlined" onClick={() => {
                 setEditingUser(u);
                 setForm({
@@ -68,7 +77,9 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
                   clubIds: u.clubIds || [],
                   groupId: u.groupId || null,
                   birthDate: u.birthDate || '',
-                  athleteCategory: u.athleteCategory || 'SENIOR'
+                  athleteCategory: u.athleteCategory || 'SENIOR',
+                  phone: u.phone || '',
+                  address: u.address || ''
                 });
                 setOpen(true);
               }}>Edit</Button>
@@ -86,6 +97,8 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
             <TextField label="Email" value={form.email} onChange={e=>setForm({...form, email:e.target.value})} />
             <TextField label="Password" type="password" value={form.password} onChange={e=>setForm({...form, password:e.target.value})} />
             <TextField type="date" label="Birth date" InputLabelProps={{ shrink: true }} value={form.birthDate} onChange={e=>setForm({...form, birthDate: e.target.value})} />
+            <TextField label="Phone" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} />
+            <TextField label="Address" value={form.address} onChange={e=>setForm({...form, address:e.target.value})} multiline rows={2} />
             {/* If defaultRole is provided by parent, use it and hide the selector. Otherwise show role choices constrained by caller role. */}
             {defaultRole ? (
               <TextField label="Role" value={defaultRole} InputProps={{ readOnly: true }} />
@@ -120,6 +133,36 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
         <DialogActions>
           <Button onClick={()=>{ setOpen(false); setEditingUser(null); }}>Cancel</Button>
           <Button variant="contained" onClick={save}>{editingUser ? 'Save' : 'Create'}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* View user (read-only) */}
+      <Dialog open={viewOpen} onClose={()=>{ setViewOpen(false); setViewUser(null) }} maxWidth="sm" fullWidth>
+        <DialogTitle>{viewUser ? `${viewUser.firstName || ''} ${viewUser.lastName || ''}` : 'User'}</DialogTitle>
+        <DialogContent>
+          {viewUser ? (
+            <Stack spacing={1} sx={{ mt:1 }}>
+              <Typography variant="body2"><strong>Email:</strong> {viewUser.email || ''}</Typography>
+              <Typography variant="body2"><strong>Phone:</strong> {viewUser.phone || '—'}</Typography>
+              <Typography variant="body2"><strong>Address:</strong> {viewUser.address || '—'}</Typography>
+              <Typography variant="body2"><strong>Birth date:</strong> {viewUser.birthDate || '—'}</Typography>
+              <Typography variant="body2"><strong>Category:</strong> {viewUser.athleteCategory || '—'}</Typography>
+              <Typography variant="body2"><strong>Group:</strong> {viewUser.groupName || '—'}</Typography>
+              <Typography variant="body2"><strong>Clubs:</strong> {(viewUser.clubIds||[]).map(cid => (clubs.find(c=>c.id===cid)?.name || cid)).join(', ') || '—'}</Typography>
+              <Typography variant="body2"><strong>Status:</strong> {viewUser.active ? 'Active' : 'Inactive'}</Typography>
+              {viewUser.dailyReminderTime && (
+                <Typography variant="body2"><strong>Daily reminder:</strong> {viewUser.dailyReminderTime}</Typography>
+              )}
+              <div>
+                {(viewUser.roles||[]).map(r => <Chip key={r} size="small" label={r.replace('ROLE_','')} sx={{ mr:0.5, mt:0.5 }} />)}
+              </div>
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">Loading…</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={()=>{ setViewOpen(false); setViewUser(null) }}>Close</Button>
         </DialogActions>
       </Dialog>
     </Paper>

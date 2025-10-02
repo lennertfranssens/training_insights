@@ -37,6 +37,8 @@ public class NotificationController {
             d.body = n.getBody();
             d.createdAt = n.getCreatedAt();
             d.isRead = n.isRead();
+            d.trainingId = n.getTrainingId();
+            d.questionnaireId = n.getQuestionnaireId();
             if (n.getClub() != null){ d.targetType = "club"; d.targetId = n.getClub().getId(); d.targetLabel = "Club: " + n.getClub().getName(); }
             else if (n.getGroup() != null){ d.targetType = "group"; d.targetId = n.getGroup().getId(); d.targetLabel = "Group: " + n.getGroup().getName(); }
             else if (n.getRecipient() != null){ d.targetType = "user"; d.targetId = n.getRecipient().getId(); d.targetLabel = "User: " + n.getRecipient().getFirstName() + " " + n.getRecipient().getLastName(); }
@@ -55,6 +57,8 @@ public class NotificationController {
         public String targetType; // club | group | user
         public Long targetId;
         public String targetLabel; // human readable label for recipient
+        public Long trainingId;
+        public Long questionnaireId;
     }
 
     @PostMapping("/{id}/read")

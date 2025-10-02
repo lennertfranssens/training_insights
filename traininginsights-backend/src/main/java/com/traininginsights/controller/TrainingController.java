@@ -5,9 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.traininginsights.dto.TrainingDtos;
 import com.traininginsights.model.QuestionnaireResponse;
 import com.traininginsights.model.Training;
+import com.traininginsights.model.Group;
 import com.traininginsights.model.User;
 import com.traininginsights.service.QuestionnaireResponseService;
 import com.traininginsights.service.TrainingService;
+import com.traininginsights.service.TrainingAttendanceService;
 import com.traininginsights.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -31,6 +33,9 @@ import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/trainings")
@@ -40,15 +45,24 @@ public class TrainingController {
     private final AttachmentRepository attachmentRepository;
     private final QuestionnaireResponseService responseService;
     private final String uploadsDir;
+    private final TrainingAttendanceService attendanceService;
 
-    public TrainingController(TrainingService service, UserRepository userRepository, AttachmentRepository attachmentRepository, QuestionnaireResponseService responseService, @Value("${app.uploadsDir:uploads}") String uploadsDir){ this.service = service; this.userRepository = userRepository; this.attachmentRepository = attachmentRepository; this.responseService = responseService; this.uploadsDir = uploadsDir; }
+    public TrainingController(TrainingService service, UserRepository userRepository, AttachmentRepository attachmentRepository, QuestionnaireResponseService responseService, TrainingAttendanceService attendanceService, @Value("${app.uploadsDir:uploads}") String uploadsDir){ this.service = service; this.userRepository = userRepository; this.attachmentRepository = attachmentRepository; this.responseService = responseService; this.attendanceService = attendanceService; this.uploadsDir = uploadsDir; }
 
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN','ATHLETE')")
     @GetMapping public java.util.List<Training> all(Authentication auth){
-        // Trainers/Admins/Superadmins see everything
         var caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
         boolean isAthlete = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ATHLETE"));
-        if (!isAthlete) return service.all();
+        boolean isAdminLike = caller.getRoles().stream().anyMatch(r -> {
+            String n = r.getName().name(); return n.equals("ROLE_ADMIN") || n.equals("ROLE_SUPERADMIN");
+        });
+        if (!isAthlete) {
+            if (isAdminLike) return service.all();
+            // trainer: only trainings where trainer is assigned to any training group
+            return service.all().stream()
+                    .filter(t -> t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getId().equals(caller.getId()))))
+                    .toList();
+        }
         // Athlete: return trainings assigned to the athlete's group (all, regardless of visible flag).
     var group = caller.getGroupEntity();
     if (group == null) return java.util.Collections.emptyList();
@@ -60,7 +74,16 @@ public class TrainingController {
         Training t = service.get(id);
         var caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
         boolean isAthlete = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ATHLETE"));
-        if (!isAthlete) return t; // trainers/admins/superadmins get full training
+        if (!isAthlete) {
+            boolean isAdminLike = caller.getRoles().stream().anyMatch(r -> {
+                String n = r.getName().name(); return n.equals("ROLE_ADMIN") || n.equals("ROLE_SUPERADMIN");
+            });
+            if (isAdminLike) return t;
+            // trainer must be assigned to at least one group of this training
+            boolean trainerAssigned = t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getId().equals(caller.getId())));
+            if (!trainerAssigned) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view this training");
+            return t;
+        }
         // Athlete: must belong to one of the training groups
     var group = caller.getGroupEntity();
     if (group == null) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view this training");
@@ -252,47 +275,121 @@ public class TrainingController {
         return res;
     }
 
+    // Aggregations endpoint removed (replaced by dedicated analytics section)
+
+    // Attendance endpoints
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
-    @GetMapping("/{id}/aggregations")
-    public java.util.Map<String,Object> aggregations(@PathVariable Long id){
+    @PostMapping("/{id}/attendance")
+    public java.util.Map<String,Object> setAttendance(Authentication auth, @PathVariable Long id, @RequestBody java.util.Map<String,Object> body){
         Training t = service.get(id);
-        var responses = responseService.byTraining(t);
-        java.util.Map<String,Object> out = new java.util.HashMap<>();
-        // We'll compute averages per questionnaire id and phase for numeric top-level fields
-        var mapper = responseService.getObjectMapper();
-        java.util.Map<String, java.util.Map<String, Double>> sums = new java.util.HashMap<>();
-        java.util.Map<String, java.util.Map<String, Integer>> counts = new java.util.HashMap<>();
-        for (var r : responses){
-            try {
-                var node = mapper.readTree(r.getResponses());
-                if (!node.isObject()) continue;
-                String qid = r.getQuestionnaire() != null ? String.valueOf(r.getQuestionnaire().getId()) : "unknown";
-                String phase = r.getPhase() != null ? r.getPhase() : "DEFAULT";
-                String key = qid + "::" + phase;
-                for (var it = node.fields(); it.hasNext(); ){
-                    var e = it.next();
-                    String field = e.getKey();
-                    if (field.startsWith("_")) continue; // meta fields skip
-                    var val = e.getValue();
-                    if (val.isNumber()){
-                        sums.computeIfAbsent(key, k -> new java.util.HashMap<>()).put(field, sums.getOrDefault(key, java.util.Collections.emptyMap()).getOrDefault(field, 0.0) + val.asDouble());
-                        counts.computeIfAbsent(key, k -> new java.util.HashMap<>()).put(field, counts.getOrDefault(key, java.util.Collections.emptyMap()).getOrDefault(field, 0) + 1);
-                    }
+        User caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        boolean isAdmin = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ADMIN") || r.getName().name().equals("ROLE_SUPERADMIN"));
+        // trainers must be assigned to at least one training group
+        boolean trainerAssigned = t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getId().equals(caller.getId())));
+        if (!(isAdmin || trainerAssigned)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to set attendance for this training");
+        Object uid = body.get("userId"); Object pres = body.get("present");
+        if (uid == null || pres == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId and present required");
+        Long userId = Long.valueOf(uid.toString()); boolean present = Boolean.parseBoolean(pres.toString());
+        User athlete = userRepository.findById(userId).orElseThrow();
+        // ensure athlete is part of one of the training groups
+        Group ag = athlete.getGroupEntity();
+        if (ag == null || t.getGroups().stream().noneMatch(g -> g.getId().equals(ag.getId()))) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Athlete not part of a training group");
+        var ta = attendanceService.setPresence(t, athlete, present);
+        return java.util.Map.of("id", ta.getId(), "trainingId", t.getId(), "userId", athlete.getId(), "present", ta.isPresent());
+    }
+
+    // Roster for a training: eligible athletes (union of groups) with current presence
+    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
+    @org.springframework.transaction.annotation.Transactional
+    @GetMapping("/{id}/attendance")
+    public java.util.List<java.util.Map<String,Object>> getAttendanceRoster(Authentication auth, @PathVariable Long id){
+        Training t = service.get(id);
+        User caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        boolean isAdmin = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ADMIN") || r.getName().name().equals("ROLE_SUPERADMIN"));
+        boolean trainerAssigned = t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getId().equals(caller.getId())));
+        if (!(isAdmin || trainerAssigned)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view attendance for this training");
+
+        // Map existing attendance for quick lookup
+        var existing = attendanceService.byTraining(t).stream().collect(java.util.stream.Collectors.toMap(a -> a.getUser().getId(), a -> a.isPresent(), (a,b)->a));
+
+        java.util.Map<Long, java.util.Map<String,Object>> byUser = new java.util.HashMap<>();
+        for (var g : t.getGroups()){
+            for (var a : g.getAthletes()){
+                if (a == null) continue;
+                Long uid = a.getId();
+                if (!byUser.containsKey(uid)){
+                    String gName = a.getGroupEntity()!=null ? a.getGroupEntity().getName() : (g!=null? g.getName() : null);
+                    Long gid = a.getGroupEntity()!=null ? a.getGroupEntity().getId() : (g!=null? g.getId() : null);
+                    java.util.Map<String,Object> row = new java.util.HashMap<>();
+                    row.put("userId", uid);
+                    row.put("firstName", a.getFirstName());
+                    row.put("lastName", a.getLastName());
+                    row.put("email", a.getEmail());
+                    row.put("groupId", gid);
+                    row.put("groupName", gName);
+                    row.put("present", existing.getOrDefault(uid, false));
+                    byUser.put(uid, row);
+                } else {
+                    // already added from another group; leave as-is (union)
                 }
-            } catch (Exception ignored){}
-        }
-        java.util.Map<String, java.util.Map<String, Double>> averages = new java.util.HashMap<>();
-        for (var entry : sums.entrySet()){
-            String key = entry.getKey();
-            var fieldMap = entry.getValue();
-            var avgMap = new java.util.HashMap<String, Double>();
-            for (var f : fieldMap.entrySet()){
-                String field = f.getKey(); double s = f.getValue(); int c = counts.getOrDefault(key, java.util.Collections.emptyMap()).getOrDefault(field, 1);
-                avgMap.put(field, c==0 ? 0.0 : s / c);
             }
-            averages.put(key, avgMap);
         }
-        out.put("averages", averages);
-        return out;
+        var list = new java.util.ArrayList<>(byUser.values());
+        list.sort((a,b) -> (a.getOrDefault("lastName","\u007f").toString()+" "+a.getOrDefault("firstName","\u007f")).compareToIgnoreCase(b.getOrDefault("lastName","\u007f").toString()+" "+b.getOrDefault("firstName","\u007f")));
+        return list;
+    }
+
+    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
+    @GetMapping("/{id}/attendance/rate")
+    public java.util.Map<String,Object> trainingPresenceRate(@PathVariable Long id){
+        Training t = service.get(id);
+        double rate = attendanceService.trainingPresenceRate(t);
+        return java.util.Map.of("trainingId", t.getId(), "presenceRate", rate);
+    }
+
+    // athlete presence rate across group trainings
+    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
+    @GetMapping("/attendance/athlete/{userId}/rate")
+    public java.util.Map<String,Object> athletePresenceRate(@PathVariable Long userId){
+        User athlete = userRepository.findById(userId).orElseThrow();
+        double rate = attendanceService.athletePresenceRate(athlete);
+        return java.util.Map.of("userId", athlete.getId(), "presenceRate", rate);
+    }
+
+    // Bulk attendance actions for a training: presentAll, absentAll, invert; optional groupId filter
+    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
+    @Transactional
+    @PostMapping("/{id}/attendance/bulk")
+    public java.util.Map<String,Object> bulkAttendance(Authentication auth, @PathVariable Long id, @RequestBody java.util.Map<String,Object> body){
+        Training t = service.get(id);
+        User caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        boolean isAdmin = caller.getRoles().stream().anyMatch(r -> r.getName().name().equals("ROLE_ADMIN") || r.getName().name().equals("ROLE_SUPERADMIN"));
+        boolean trainerAssigned = t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getId().equals(caller.getId())));
+        if (!(isAdmin || trainerAssigned)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to set attendance for this training");
+
+        String action = String.valueOf(body.getOrDefault("action", "")).trim();
+        Long groupId = null; if (body.get("groupId") != null) { try { groupId = Long.valueOf(String.valueOf(body.get("groupId"))); } catch (Exception ignored) {} }
+        if (!("presentAll".equals(action) || "absentAll".equals(action) || "invert".equals(action)))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid action");
+
+        // Determine target athletes: union of training groups, optionally filter by one group id
+        Set<User> targets = new HashSet<>();
+        for (var g : t.getGroups()){ if (groupId == null || g.getId().equals(groupId)) targets.addAll(g.getAthletes()); }
+        if (targets.isEmpty()) return java.util.Map.of("updated", 0);
+
+        // Build quick lookup for existing attendance for invert
+        var existing = attendanceService.byTraining(t).stream().collect(Collectors.toMap(ta -> ta.getUser().getId(), ta -> ta.isPresent(), (a,b)->a));
+        int updated = 0;
+        for (User a : targets){
+            boolean desired;
+            if ("presentAll".equals(action)) desired = true;
+            else if ("absentAll".equals(action)) desired = false;
+            else { // invert: missing counts as absent -> becomes present
+                boolean cur = existing.getOrDefault(a.getId(), false);
+                desired = !cur;
+            }
+            attendanceService.setPresence(t, a, desired); updated++;
+        }
+        return java.util.Map.of("updated", updated);
     }
 }

@@ -8,8 +8,11 @@ import com.traininginsights.repository.PushSubscriptionRepository;
 import com.traininginsights.repository.PushConfigRepository;
 import nl.martijndwars.webpush.Notification;
 import nl.martijndwars.webpush.Subscription;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import java.security.Security;
 
 @Service
 public class PushService {
@@ -30,8 +33,16 @@ public class PushService {
         this.vapidPublic = vapidPublic;
         this.vapidPrivate = vapidPrivate;
         this.vapidSubject = vapidSubject;
-    // if env not set, attempt to read from DB
-        if ((this.vapidPublic == null || this.vapidPublic.isBlank()) || (this.vapidPrivate == null || this.vapidPrivate.isBlank())){
+        // Ensure BouncyCastle provider is registered for EC crypto used by web-push (safe to call multiple times)
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+        // If env not set, attempt an initial read from DB
+        refreshFromDbIfMissing();
+    }
+
+    private void refreshFromDbIfMissing(){
+        if ((this.vapidPublic == null || this.vapidPublic.isBlank()) || (this.vapidPrivate == null || this.vapidPrivate.isBlank()) || (this.vapidSubject == null || this.vapidSubject.isBlank())){
             try {
                 var opt = configRepo.findTopByOrderByIdDesc();
                 if (opt.isPresent()){
@@ -53,6 +64,8 @@ public class PushService {
      */
     public void sendNotification(PushSubscription s, String payload){
         try {
+            // attempt to lazily load keys if missing
+            refreshFromDbIfMissing();
             if (vapidPublic == null || vapidPublic.isBlank() || vapidPrivate == null || vapidPrivate.isBlank()){
                 System.out.println("[PushService] VAPID keys not configured; logging notification instead. endpoint="+s.getEndpoint()+" payload="+payload);
                 return;
@@ -76,12 +89,40 @@ public class PushService {
             webPush.setPrivateKey(vapidPrivate);
 
             Notification notification = new Notification(sub, payload == null ? "" : payload);
-            webPush.send(notification);
+            var resp = webPush.send(notification);
+            if (resp != null) {
+                int code = resp.getStatusLine().getStatusCode();
+                if (code == 404 || code == 410) {
+                    // subscription is gone; clean up
+                    try { repo.deleteById(s.getId()); } catch (Exception ignored) {}
+                    System.out.println("[PushService] Removed expired subscription id="+s.getId()+" status="+code);
+                }
+            }
             System.out.println("[PushService] Sent web-push to subscription id="+s.getId());
         } catch (Exception e){
             System.out.println("[PushService] Error sending push notification to subscription id="+s.getId()+" : " + e.getMessage());
         }
     }
 
-    public String getVapidPublic(){ return vapidPublic; }
+    /**
+     * Structured payload variant: send JSON with title/body/url so the service worker can render a richer notification.
+     */
+    public void sendNotification(PushSubscription s, String title, String body, String url){
+        try {
+            var obj = new java.util.LinkedHashMap<String, Object>();
+            if (title != null) obj.put("title", title);
+            if (body != null) obj.put("body", body);
+            if (url != null && !url.isBlank()) obj.put("url", url);
+            String json = mapper.writeValueAsString(obj);
+            sendNotification(s, json);
+        } catch (Exception e){
+            // fallback to text
+            sendNotification(s, (title == null ? "" : title) + "\n" + (body == null ? "" : body));
+        }
+    }
+
+    public String getVapidPublic(){
+        refreshFromDbIfMissing();
+        return vapidPublic == null ? null : vapidPublic.trim();
+    }
 }

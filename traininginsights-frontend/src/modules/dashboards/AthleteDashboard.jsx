@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api/client'
-import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, ToggleButton, ToggleButtonGroup, Chip, Tabs, Tab, Box } from '@mui/material'
+import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Chip, Box, Tabs, Tab } from '@mui/material'
 import { useSnackbar } from '../common/SnackbarProvider'
 import QuestionnaireForm from '../common/QuestionnaireForm'
 import TrainingsListCalendar from '../common/TrainingsListCalendar'
 import UnreadBadge from '../common/UnreadBadge'
 import NotificationsInbox from '../pages/NotificationsInbox'
-export default function AthleteDashboard(){
+export default function AthleteDashboard({ initialSection }){
   const [trainings, setTrainings] = useState([])
   const [pending, setPending] = useState([])
   const [qOpen, setQOpen] = useState(false)
@@ -27,12 +27,38 @@ export default function AthleteDashboard(){
   // read persisted view mode (matches TrainingsPage)
   const storedView = typeof window !== 'undefined' ? window.localStorage.getItem('trainings.viewMode') : null
   const [viewMode, setViewMode] = useState(storedView || 'calendar')
-  const [tab, setTab] = useState(0)
-  const load = async () => {
-    const [t, p, q, f] = await Promise.all([ api.get('/api/athlete/trainings/upcoming'), api.get('/api/athlete/questionnaires/pending'), api.get('/api/questionnaires'), api.get('/api/athlete/questionnaires/filled') ])
-    setTrainings(t.data); setPending(p.data); setAllQuestionnaires(q.data || []); setFilled(f.data || []); if (q.data?.[0]) setDailyQId(q.data[0].id)
+  // allow athletes to switch between upcoming-only and all trainings (including past)
+  const storedRange = typeof window !== 'undefined' ? window.localStorage.getItem('trainings.range') : null
+  const [trainingRange, setTrainingRange] = useState(storedRange || 'all') // 'upcoming' | 'all'
+  const sectionToTab = (s) => {
+    if (!s) return 0
+    const key = String(s).toLowerCase()
+    if (key === 'questionnaires') return 1
+    if (key === 'notifications') return 2
+    return 0
   }
-  useEffect(()=>{ load() }, [])
+  const [tab, setTab] = useState(sectionToTab(initialSection))
+  React.useEffect(()=>{ setTab(sectionToTab(initialSection)) }, [initialSection])
+  React.useEffect(()=>{
+    const handler = (e) => {
+      const s = e?.detail?.section
+      if (!s) return
+      if (s === 'trainings') setTab(0)
+      if (s === 'questionnaires') setTab(1)
+      if (s === 'notifications') setTab(2)
+    }
+    window.addEventListener('navigate-dashboard', handler)
+    return () => window.removeEventListener('navigate-dashboard', handler)
+  },[])
+  const load = async () => {
+    const trainingsReq = trainingRange === 'all' ? api.get('/api/athlete/trainings/all') : api.get('/api/athlete/trainings/upcoming')
+    const [t, p, q, f] = await Promise.all([ trainingsReq, api.get('/api/athlete/questionnaires/pending'), api.get('/api/questionnaires'), api.get('/api/athlete/questionnaires/filled') ])
+    const qList = q.data || []
+    setTrainings(t.data); setPending(p.data); setAllQuestionnaires(qList); setFilled(f.data || [])
+    const firstDaily = qList.find(x => x.daily)
+    setDailyQId(firstDaily ? firstDaily.id : '')
+  }
+  useEffect(()=>{ load() }, [trainingRange])
   const { showSnackbar } = useSnackbar()
 
   // One-click enable push for athletes (don't auto-subscribe on page load)
@@ -70,7 +96,14 @@ export default function AthleteDashboard(){
     const q = allQuestionnaires.find(x => x.id === questionnaireId); if (!q) return
     // try to prefill values if an existing submission exists (for daily or previous submissions)
     let values = {}
-    const existing = filled.find(r => r.questionnaire?.id === questionnaireId && (trainingId ? r.training?.id === trainingId : !r.training))
+    // Prefer DAILY phase for training-less (daily) check-ins; otherwise fallback to any training-less response for that questionnaire
+    let existing = null
+    if (trainingId) {
+      existing = filled.find(r => r.questionnaire?.id === questionnaireId && r.training && String(r.training.id) === String(trainingId))
+    } else {
+      const candidates = filled.filter(r => r.questionnaire?.id === questionnaireId && !r.training)
+      existing = candidates.find(r => (r.phase === 'DAILY' || r.type === 'DAILY')) || candidates[0]
+    }
     if (existing && existing.responses){
       try { values = JSON.parse(existing.responses) } catch (e) { values = {} }
     }
@@ -88,36 +121,58 @@ export default function AthleteDashboard(){
   return (
     <Box>
       <Paper sx={{ p:1, mb:2 }}>
-        <Tabs value={tab} onChange={(e,v)=>setTab(v)}>
-          <Tab label="Trainings" />
-          <Tab label="Questionnaires" />
-          <Tab label={<span style={{ display: 'flex', alignItems: 'center', gap:8 }}><span>Notifications</span><UnreadBadge /></span>} />
-        </Tabs>
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 0 }}>
           <Button size="small" variant="outlined" onClick={enablePush}>Enable notifications</Button>
         </div>
       </Paper>
 
       <Box hidden={tab !== 0}>
         <Paper sx={{ p:2, mb:2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb:2 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-              <Typography variant="h6">Upcoming Trainings</Typography>
-            </div>
-            <ToggleButtonGroup size="small" value={viewMode} exclusive onChange={(e,v)=>{
-              if (!v) return
-              setViewMode(v)
-              try { window.localStorage.setItem('trainings.viewMode', v) } catch(e){}
-            }}>
-              <ToggleButton value="list">List</ToggleButton>
-              <ToggleButton value="calendar">Calendar</ToggleButton>
-            </ToggleButtonGroup>
-          </Stack>
+          <Typography variant="h6" sx={{ mb:1 }}>Trainings</Typography>
+          <Box sx={{ display:'flex', alignItems:'center', borderBottom: 1, borderColor: 'divider', mb:2 }}>
+            <Tabs value={viewMode} onChange={(e,v)=>{ if (v){ setViewMode(v); try{ window.localStorage.setItem('trainings.viewMode', v) } catch(e){} } }} sx={{ minHeight: 'auto' }} TabIndicatorProps={{ sx: { height: 2 }}}>
+              <Tab label="List" value="list" sx={{ minHeight: 'auto' }} />
+              <Tab label="Calendar" value="calendar" sx={{ minHeight: 'auto' }} />
+            </Tabs>
+            <Box sx={{ flex: 1 }} />
+            <TextField
+              select
+              variant="standard"
+              label="Range"
+              value={trainingRange}
+              onChange={(e)=>{ const v = e.target.value; setTrainingRange(v); try{ window.localStorage.setItem('trainings.range', v) }catch(err){} }}
+              sx={{ minWidth: 140 }}
+            >
+              <MenuItem value="upcoming">Upcoming</MenuItem>
+              <MenuItem value="all">All</MenuItem>
+            </TextField>
+          </Box>
           <TrainingsListCalendar
             trainings={trainings}
             filledResponses={filled}
             viewMode={viewMode}
             onViewModeChange={(v)=>{ setViewMode(v); try{ window.localStorage.setItem('trainings.viewMode', v) }catch(e){} }}
+            initialDate={(() => {
+              // When showing all trainings, jump calendar to the most recent past training if available,
+              // otherwise to the next upcoming training, else today.
+              if (viewMode !== 'calendar') return undefined
+              const list = trainings || []
+              if (!list.length) return undefined
+              try{
+                const now = Date.now()
+                const past = list
+                  .map(t => new Date(t.trainingTime))
+                  .filter(d => d.getTime() <= now)
+                  .sort((a,b) => b - a)
+                if (past.length) return past[0]
+                const future = list
+                  .map(t => new Date(t.trainingTime))
+                  .filter(d => d.getTime() > now)
+                  .sort((a,b) => a - b)
+                if (future.length) return future[0]
+              } catch(e) {}
+              return undefined
+            })()}
             onEventClick={async (id, t)=>{
               try {
                 if (!t) t = trainings.find(x=>String(x.id) === String(id))
@@ -167,34 +222,60 @@ export default function AthleteDashboard(){
       <Box hidden={tab !== 1}>
         <Paper sx={{ p:2, mb:2 }}>
           <Typography variant="h6" sx={{ mb:2 }}>Pending Questionnaires</Typography>
-          <Stack spacing={1}>
-            {(pending||[]).map(item => {
-              const t = trainings.find(x => x.id === item.trainingId)
-              const title = t ? t.title : `#${item.trainingId}`
-              const date = t ? new Date(t.trainingTime).toLocaleString() : null
-              return (
-                <Paper key={`${item.trainingId}-${item.questionnaireId}-${item.type}`} sx={{ p:2, display:'flex', justifyContent:'space-between' }}>
-                  <div>
-                    <Typography>{title}{date ? ` — ${date}` : ''} — {item.type}</Typography>
-                    <Typography variant="body2">Q: {allQuestionnaires.find(q=>q.id===item.questionnaireId)?.title || `ID ${item.questionnaireId}`}</Typography>
-                  </div>
-                  <Button variant="contained" onClick={()=>openQuestionnaire(item.trainingId, item.questionnaireId, item.type)}>Fill</Button>
-                </Paper>
-              )
-            })}
-          </Stack>
+          {(() => {
+            if (!pending || pending.length === 0) return <Typography variant="body2">No pending questionnaires</Typography>
+            const byT = {}
+            pending.forEach(item => { const k = String(item.trainingId); if (!byT[k]) byT[k] = []; byT[k].push(item) })
+            // order trainings by training time ascending (nearest first)
+            const keys = Object.keys(byT).sort((a,b)=>{
+              const ta = trainings.find(x=>String(x.id)===a); const tb = trainings.find(x=>String(x.id)===b)
+              const at = ta?.trainingTime ? new Date(ta.trainingTime).getTime() : 0
+              const bt = tb?.trainingTime ? new Date(tb.trainingTime).getTime() : 0
+              return at - bt
+            })
+            return (
+              <Stack spacing={2}>
+                {keys.map(k => {
+                  const t = trainings.find(x=>String(x.id)===k)
+                  const title = t ? t.title : `Training ${k}`
+                  const date = t?.trainingTime ? new Date(t.trainingTime).toLocaleString() : ''
+                  return (
+                    <Paper key={k} sx={{ p:2 }}>
+                      <Typography variant="subtitle1">{title} {date ? `— ${date}` : ''}</Typography>
+                      <Stack spacing={1} sx={{ mt:1 }}>
+                        {byT[k].map(item => (
+                          <div key={`${item.trainingId}-${item.questionnaireId}-${item.type}`} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <div>
+                              <Typography variant="body2">{item.type} — {allQuestionnaires.find(q=>q.id===item.questionnaireId)?.title || `Q ${item.questionnaireId}`}</Typography>
+                            </div>
+                            <Button size="small" variant="contained" onClick={()=>openQuestionnaire(item.trainingId, item.questionnaireId, item.type)}>Fill</Button>
+                          </div>
+                        ))}
+                      </Stack>
+                    </Paper>
+                  )
+                })}
+              </Stack>
+            )
+          })()}
         </Paper>
         <Paper sx={{ p:2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb:1 }}>
             <Typography variant="h6">Daily Check-in</Typography>
             <Button size="small" onClick={()=>setHistoryOpen(true)}>History</Button>
           </Stack>
-          <Stack direction={{ xs:'column', md:'row' }} spacing={2} sx={{ mb:2 }}>
-            <TextField select label="Questionnaire" value={dailyQId} onChange={e=>setDailyQId(e.target.value)} sx={{ minWidth: 240 }}>
-              {allQuestionnaires.map(q => <MenuItem key={q.id} value={q.id}>{q.title}</MenuItem>)}
-            </TextField>
-            <Button variant="contained" onClick={()=>{ const q=allQuestionnaires.find(x=>x.id===dailyQId); if (q){ setQStructure(q.structure); setQValues({}); setQContext({ trainingId: null, questionnaireId: dailyQId }); setQOpen(true) }}}>Open</Button>
-          </Stack>
+          {(() => {
+            const dailyList = (allQuestionnaires || []).filter(q => !!q.daily)
+            if (!dailyList.length) return <Typography variant="body2" color="text.secondary">No daily questionnaires available. Ask your trainer to enable a daily questionnaire.</Typography>
+            return (
+              <Stack direction={{ xs:'column', md:'row' }} spacing={2} sx={{ mb:2 }}>
+                <TextField select label="Questionnaire" value={dailyQId} onChange={e=>setDailyQId(e.target.value)} sx={{ minWidth: 240 }}>
+                  {dailyList.map(q => <MenuItem key={q.id} value={q.id}>{q.title}</MenuItem>)}
+                </TextField>
+                <Button variant="contained" disabled={!dailyQId} onClick={()=>{ if (dailyQId) openQuestionnaire(null, dailyQId, 'DAILY') }}>Open</Button>
+              </Stack>
+            )
+          })()}
         </Paper>
       </Box>
 

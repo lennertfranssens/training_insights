@@ -237,7 +237,7 @@ classDiagram
   }
 
   class Role {
-    +RoleName name  // ROLE_ATHLETE | ROLE_TRAINER | ROLE_ADMIN | ROLE_SUPERADMIN
+    +RoleName name
   }
 
   class Club {
@@ -267,17 +267,24 @@ classDiagram
     +boolean present
   }
 
+  class Attachment {
+    +Long id
+    +String filename
+    +String contentType
+    +String path
+  }
+
   class Questionnaire {
     +Long id
     +String name
-    +String schema // JSON definition of fields
+    +String schema
   }
 
   class QuestionnaireResponse {
     +Long id
-    +String responses // JSON
+    +String responses
     +Instant submittedAt
-    +String phase // pre | post
+    +String phase
   }
 
   class Season {
@@ -291,7 +298,20 @@ classDiagram
     +Long id
     +String title
     +String description
-    +String status // active | completed | archived
+    +String status
+  }
+
+  class GoalProgress {
+    +Long id
+    +Integer progress
+    +String note
+    +Instant createdAt
+  }
+
+  class GoalFeedback {
+    +Long id
+    +String comment
+    +Instant createdAt
   }
 
   User "*" -- "*" Role
@@ -302,12 +322,26 @@ classDiagram
   Training "*" -- "*" Group
   Training "1" -- "*" TrainingAttendance
   Training "1" -- "*" QuestionnaireResponse
+  Training "1" -- "*" Attachment
   Questionnaire "1" -- "0..*" Training : pre/post
   User "1" -- "*" QuestionnaireResponse
   User "1" -- "*" TrainingAttendance
   Season "1" -- "*" Training
   User "1" -- "*" Goal
+  Goal "1" -- "*" GoalProgress
+  Goal "1" -- "*" GoalFeedback
+  User "1" -- "*" GoalFeedback : trainer
 ```
+
+Legend
+
+| Label / Notation | Meaning |
+|---|---|
+| pre/post | A Training can reference a Questionnaire as its preQuestionnaire or postQuestionnaire |
+| trainers | Users assigned as trainers of a Group |
+| athletes | Users who are athletes in a Group |
+| trainer | The User who authored a GoalFeedback (must have trainer role) |
+| 1, * , 0..* | Multiplicity (one, many, zero-or-many) |
 
 Notes
 - Groups can have multiple trainers and belong to multiple clubs. Athletes are members of groups.
@@ -318,8 +352,8 @@ Notes
 ### Request flow and security
 
 ```mermaid
-flowchart LR
-  FE[Frontend (React + Axios)] -->|/api/* with Authorization: Bearer| GW[Spring Security]
+graph LR
+  FE[Frontend (React + Axios)] --> GW[Spring Security]
   GW --> F[JwtAuthenticationFilter]
   F --> C{Controllers}
   C --> S[Services]

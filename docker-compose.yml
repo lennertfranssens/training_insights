@@ -26,6 +26,8 @@ services:
       DB_PASS: postgres
       TI_JWT_SECRET: "change-this-to-a-long-secret-or-base64"
       SPRING_PROFILES_ACTIVE: docker
+      # Explicit uploads dir inside container; persist via volume below
+      APP_UPLOADS_DIR: /opt/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -37,6 +39,8 @@ services:
       timeout: 5s
       retries: 5
     networks: [ti]
+    volumes:
+      - uploads:/opt/app/uploads
 
   frontend:
     build:
@@ -56,6 +60,7 @@ services:
 
 volumes:
   pgdata:
+  uploads:
 
 networks:
   ti:

@@ -5,8 +5,6 @@ services:
       POSTGRES_DB: traininginsights
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -26,26 +24,24 @@ services:
       DB_NAME: traininginsights
       DB_USER: postgres
       DB_PASS: postgres
-      TI_JWT_SECRET: "change-this-to-a-long-secret-or-base64"  # now tolerant
+      TI_JWT_SECRET: "change-this-to-a-long-secret-or-base64"
       SPRING_PROFILES_ACTIVE: docker
-      # No server.servlet.context-path set
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"   # Internal only
     networks: [ti]
 
   frontend:
     build:
       context: ./traininginsights-frontend
     environment:
-      # Optional: override base if you ever front a different path
       VITE_API_BASE: /api
     depends_on:
       - backend
-    ports:
-      - "3000:80"
+    expose:
+      - "80"     # Serve frontend on container port 80
     networks: [ti]
 
 volumes:

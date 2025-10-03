@@ -31,6 +31,11 @@ services:
         condition: service_healthy
     expose:
       - "8080"   # Internal only
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks: [ti]
 
   frontend:
@@ -42,6 +47,11 @@ services:
       - backend
     expose:
       - "80"     # Serve frontend on container port 80
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks: [ti]
 
 volumes:

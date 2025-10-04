@@ -3,6 +3,7 @@ package com.traininginsights.controller;
 import com.traininginsights.dto.AuthDtos;
 import com.traininginsights.model.*;
 import com.traininginsights.repository.GroupRepository;
+import com.traininginsights.repository.ClubRepository;
 import com.traininginsights.repository.RoleRepository;
 import com.traininginsights.repository.UserRepository;
 import com.traininginsights.security.JwtService;
@@ -27,14 +28,16 @@ public class AuthController {
     private final RoleRepository roleRepository;
     private final GroupRepository groupRepository;
     private final PasswordEncoder encoder;
+    private final ClubRepository clubRepository;
 
-    public AuthController(AuthenticationManager authenticationManager, JwtService jwtService, UserRepository userRepository, RoleRepository roleRepository, GroupRepository groupRepository, PasswordEncoder encoder) {
+    public AuthController(AuthenticationManager authenticationManager, JwtService jwtService, UserRepository userRepository, RoleRepository roleRepository, GroupRepository groupRepository, PasswordEncoder encoder, ClubRepository clubRepository) {
         this.authenticationManager = authenticationManager;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.groupRepository = groupRepository;
         this.encoder = encoder;
+        this.clubRepository = clubRepository;
     }
 
     @PostMapping("/signin")
@@ -63,6 +66,14 @@ public class AuthController {
         if (req.athleteCategory != null) u.setAthleteCategory(AthleteCategory.valueOf(req.athleteCategory));
         if (req.groupId != null) {
             groupRepository.findById(req.groupId).ifPresent(u::setGroupEntity);
+        }
+        if (req.clubId != null) {
+            var clubOpt = clubRepository.findById(req.clubId);
+            if (clubOpt.isEmpty()) {
+                return ResponseEntity.badRequest().body(new AuthDtos.AuthResponse("INVALID_CLUB", null, null, new String[]{}));
+            } else {
+                u.setClubs(Set.of(clubOpt.get()));
+            }
         }
         // default role ATHLETE
         Role athlete = roleRepository.findByName(RoleName.ROLE_ATHLETE).orElseThrow();

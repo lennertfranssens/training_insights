@@ -455,3 +455,27 @@ Key rules
 Frontend navigation (selected)
 - Admins: Clubs, Admins, Trainers, Athletes, Club Members, Push Config, SMTP, Seasons, Notifications, Create Notification, Groups.
 - Trainers: Groups, Athletes, Trainings, Questionnaires, Goals, Analytics, Notifications, Create Notification.
+
+## Public signup and clubs
+
+Athlete signup is open via `POST /api/auth/signup` and now supports an optional `clubId` so a new athlete can immediately join a club.
+
+Discoverable clubs (minimal fields) are exposed at:
+
+`GET /api/public/clubs` → `[ { "id": 1, "name": "Example Club" }, ... ]`
+
+Signup request example including a club:
+
+```json
+{
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "email": "jane@example.com",
+  "password": "Secret123!",
+  "athleteCategory": "SENIOR",
+  "birthDate": "1990-05-20",
+  "clubId": 3
+}
+```
+
+If `clubId` is omitted or empty, the user is created without club membership. Invalid `clubId` values return HTTP 400.

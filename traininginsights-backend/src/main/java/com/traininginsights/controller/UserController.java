@@ -26,7 +26,30 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN','TRAINER')")
     @GetMapping
     public List<UserDtos.UserDTO> all(){
-        return userService.all().stream().map(this::toDTO).collect(Collectors.toList());
+        String callerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        User caller = userRepository.findByEmailIgnoreCase(callerEmail).orElseThrow();
+        Set<String> callerRoles = caller.getRoles().stream().map(r->r.getName().name()).collect(Collectors.toSet());
+        boolean isSuper = callerRoles.contains("ROLE_SUPERADMIN");
+        boolean isAdmin = callerRoles.contains("ROLE_ADMIN");
+        Set<Long> callerClubIds = caller.getClubs().stream().map(c->c.getId()).collect(Collectors.toSet());
+
+        return userService.all().stream()
+            .filter(u -> {
+                if (isSuper) return true; // superadmin sees everyone
+                // admins: see users in their clubs, plus group athletes they train
+                if (isAdmin) {
+                    boolean sharesClub = u.getClubs().stream().anyMatch(cl-> callerClubIds.contains(cl.getId()));
+                    return sharesClub || (u.getGroupEntity() != null && u.getGroupEntity().getTrainers().stream().anyMatch(t-> t.getId().equals(caller.getId())));
+                }
+                // trainers: only athletes they train or share a club with
+                boolean targetIsAthlete = u.getRoles().stream().anyMatch(r-> r.getName().name().equals("ROLE_ATHLETE"));
+                if (!targetIsAthlete) return false;
+                boolean sharesClub = u.getClubs().stream().anyMatch(cl-> callerClubIds.contains(cl.getId()));
+                boolean trainerOfGroup = u.getGroupEntity() != null && u.getGroupEntity().getTrainers().stream().anyMatch(t-> t.getId().equals(caller.getId()));
+                return sharesClub || trainerOfGroup;
+            })
+            .map(this::toDTO)
+            .collect(Collectors.toList());
     }
 
     // Simple athlete search for trainers: q matches first/last/email contains (case-insensitive)

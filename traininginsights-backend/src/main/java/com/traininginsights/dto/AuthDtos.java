@@ -19,6 +19,7 @@ public class AuthDtos {
         public String birthDate; // ISO yyyy-MM-dd
         public String athleteCategory; // enum name
         public Long groupId; // optional
+        public Long clubId; // optional
     }
 
     public static class AuthResponse {

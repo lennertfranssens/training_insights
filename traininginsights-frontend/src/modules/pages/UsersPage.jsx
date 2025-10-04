@@ -8,7 +8,10 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
   const [viewOpen, setViewOpen] = useState(false)
   const [viewUser, setViewUser] = useState(null)
   const [editingUser, setEditingUser] = useState(null)
-  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], birthDate:'', athleteCategory: 'SENIOR', phone:'', address:'' })
+  const initialRole = defaultRole === 'ALL' ? 'ROLE_ATHLETE' : defaultRole
+  const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', roleNames:[initialRole], clubIds: [], birthDate:'', athleteCategory: 'SENIOR', phone:'', address:'' })
+  // role filter for listing when defaultRole === 'ALL'
+  const [roleFilter, setRoleFilter] = useState('ALL')
   const [clubs, setClubs] = useState([])
   const [me, setMe] = useState(null)
   const [groups, setGroups] = useState([])
@@ -39,18 +42,31 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
   return (
     <Paper sx={{ p:2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb:2 }}>
-  <Typography variant="h6">{title}</Typography>
-  <Button variant="contained" onClick={()=>{ setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], groupId: null }); setOpen(true); }}>Create</Button>
+  <Stack direction="row" spacing={2} alignItems="center">
+    <Typography variant="h6">{title}</Typography>
+    {defaultRole === 'ALL' && (
+      <TextField select size="small" label="Role" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)} sx={{ minWidth:160 }}>
+        <MenuItem value="ALL">All</MenuItem>
+        <MenuItem value="ROLE_ADMIN">Admin</MenuItem>
+        <MenuItem value="ROLE_TRAINER">Trainer</MenuItem>
+        <MenuItem value="ROLE_ATHLETE">Athlete</MenuItem>
+      </TextField>
+    )}
+  </Stack>
+  <Button variant="contained" onClick={()=>{ const baseRole = (defaultRole === 'ALL') ? (roleFilter === 'ALL' ? 'ROLE_ATHLETE' : roleFilter) : defaultRole; setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[baseRole], clubIds: [], groupId: null }); setOpen(true); }}>Create</Button>
       </Stack>
       <Stack spacing={1}>
   {users.filter(u => {
-          // only show users relevant for this page: filter by defaultRole and caller scope
-          if (!u.roles?.includes(defaultRole)) return false
-          // superadmin sees all for admins page; admins should see users in their clubs only
-          if (me?.roles?.includes('ROLE_SUPERADMIN')) return true
-          const userClubIds = u.clubIds || []
-          return (me?.clubIds || []).some(id => userClubIds.includes(id))
-        }).map(u => (
+    // Filter by selected role when defaultRole === 'ALL' and roleFilter != ALL
+    if (defaultRole === 'ALL') {
+      if (roleFilter !== 'ALL' && !u.roles?.includes(roleFilter)) return false
+    } else if (!u.roles?.includes(defaultRole)) return false
+    // superadmin sees all
+    if (me?.roles?.includes('ROLE_SUPERADMIN')) return true
+    // admins limited to their clubs
+    const userClubIds = u.clubIds || []
+    return (me?.clubIds || []).some(id => userClubIds.includes(id))
+  }).map(u => (
           <Paper key={u.id} sx={{ p:2, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <div>
               <Typography>{u.firstName} {u.lastName} — {u.email}</Typography>
@@ -100,7 +116,7 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
             <TextField label="Phone" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} />
             <TextField label="Address" value={form.address} onChange={e=>setForm({...form, address:e.target.value})} multiline rows={2} />
             {/* If defaultRole is provided by parent, use it and hide the selector. Otherwise show role choices constrained by caller role. */}
-            {defaultRole ? (
+            {(defaultRole && defaultRole !== 'ALL') ? (
               <TextField label="Role" value={defaultRole} InputProps={{ readOnly: true }} />
             ) : (
               <TextField select label="Role" value={form.roleNames[0]} onChange={e=>setForm({...form, roleNames:[e.target.value], clubIds: [], groupId: null})}>

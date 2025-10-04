@@ -11,6 +11,7 @@ export function getNavItems(roles = []){
     items.push(
       { label: 'Clubs', to: '/dashboard/clubs' },
       { label: 'Admins', to: '/dashboard/admins' },
+      { label: 'Users', to: '/dashboard/users' },
       { label: 'Backup', to: '/dashboard/backup' },
     )
   }
@@ -21,6 +22,7 @@ export function getNavItems(roles = []){
       { label: 'Groups', to: '/dashboard/groups' },
       { label: 'Trainers', to: '/dashboard/trainers' },
       { label: 'Athletes', to: '/dashboard/athletes' },
+      { label: 'Users', to: '/dashboard/users' },
       { label: 'Club Members', to: '/dashboard/club-members' },
       { label: 'Push Config', to: '/dashboard/push-config' },
       { label: 'SMTP Settings', to: '/dashboard/smtp' },

@@ -40,10 +40,17 @@ export default function App(){
           {/* SuperAdmin */}
           <Route path="clubs" element={<SuperAdminOnly><ClubsPage /></SuperAdminOnly>} />
           <Route path="admins" element={<SuperAdminOnly><UsersPage title="Admins" defaultRole="ROLE_ADMIN" /></SuperAdminOnly>} />
+          {/* Users (admins & superadmins) */}
           <Route path="backup" element={<SuperAdminOnly><AdminBackupPage /></SuperAdminOnly>} />
           {/* Admin */}
           <Route path="trainers" element={<AdminOnly><UsersPage title="Trainers" defaultRole="ROLE_TRAINER" /></AdminOnly>} />
           <Route path="athletes" element={<TrainerOrAdmin><UsersPage title="Athletes" defaultRole="ROLE_ATHLETE" /></TrainerOrAdmin>} />
+          <Route path="users" element={<AdminOnly>{(() => {
+            const stored = JSON.parse(localStorage.getItem('ti_auth') || '{}')
+            const roles = stored?.roles || []
+            const title = roles.includes('ROLE_SUPERADMIN') ? 'All Users' : 'Users'
+            return <UsersPage title={title} defaultRole="ALL" />
+          })()}</AdminOnly>} />
           <Route path="club-members" element={<AdminOnly><ClubMembersPage /></AdminOnly>} />
           <Route path="push-config" element={<AdminOnly><PushConfigAdmin /></AdminOnly>} />
           <Route path="smtp" element={<AdminOnly><AdminSmtpRoute /></AdminOnly>} />

@@ -12,3 +12,4 @@ FROM nginx:alpine
 RUN apk add --no-cache curl
 COPY ./nginx/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80

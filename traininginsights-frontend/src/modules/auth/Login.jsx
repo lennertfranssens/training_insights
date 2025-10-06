@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { Container, Paper, Typography, TextField, Button, Stack, Alert } from '@mui/material'
-import { useNavigate, Link } from 'react-router-dom'
+import { Container, Paper, Typography, TextField, Button, Stack, Alert, Link } from '@mui/material'
+import { useNavigate, Link as RouterLink } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 export default function Login(){
   const { signin } = useAuth()
@@ -22,7 +22,8 @@ export default function Login(){
             <TextField label="Email" value={email} onChange={e=>setEmail(e.target.value)} fullWidth />
             <TextField label="Password" value={password} onChange={e=>setPassword(e.target.value)} type="password" fullWidth />
             <Button type="submit" variant="contained">Sign in</Button>
-            <Typography variant="body2">No account? <Link to="/signup">Sign up</Link></Typography>
+            <Link component={RouterLink} to="/forgot" underline="hover" sx={{ fontSize:14, mt:1, textAlign:'center' }}>Forgot password?</Link>
+            {/* Signup removed: link intentionally omitted */}
           </Stack>
         </form>
       </Paper>

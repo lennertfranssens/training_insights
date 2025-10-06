@@ -22,6 +22,11 @@ app:
     secret: ${TI_JWT_SECRET:dev-secret-change-me}
     expirationMillis: 86400000 # 24h
   uploadsDir: ${APP_UPLOADS_DIR:uploads}
+  attachments:
+    maxMb: ${APP_ATTACHMENTS_MAX_MB:25}
+  public:
+    environment: ${APP_PUBLIC_ENV:local}
+  baseUrl: ${APP_BASE_URL:http://localhost:3000}
 
 # VAPID keys for Web Push notifications. Generate a keypair and set these values in your production
 # environment (do NOT commit private key to source). Example generation can be done using the

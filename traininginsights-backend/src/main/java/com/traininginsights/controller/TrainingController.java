@@ -122,6 +122,34 @@ public class TrainingController {
         t.setId(id); return service.save(t);
     }
 
+    // Lightweight reschedule: only change start/end times; preserve other fields
+    @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
+    @PatchMapping("/{id}/reschedule")
+    public Training reschedule(@PathVariable Long id, @RequestBody java.util.Map<String,Object> body){
+        Training existing = service.get(id);
+        Object startObj = body.get("trainingTime");
+        Object endObj = body.get("trainingEndTime");
+        if (startObj == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "trainingTime required");
+        java.time.Instant newStart;
+        try { newStart = java.time.Instant.parse(startObj.toString()); } catch (Exception e){ throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid trainingTime"); }
+        java.time.Instant newEnd = null;
+        if (endObj != null && !endObj.toString().isBlank()) {
+            try { newEnd = java.time.Instant.parse(endObj.toString()); } catch (Exception e){ throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid trainingEndTime"); }
+        }
+        if (newEnd != null && !newEnd.isAfter(newStart)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Training end time must be after start time");
+        }
+        existing.setTrainingTime(newStart);
+        existing.setTrainingEndTime(newEnd);
+        // Recompute notification time based on existing preNotificationMinutes
+        if (existing.getPreNotificationMinutes() != null && existing.getPreNotificationMinutes() > 0) {
+            existing.setNotificationTime(existing.getTrainingTime().minusSeconds(existing.getPreNotificationMinutes() * 60L));
+        } else {
+            existing.setNotificationTime(null);
+        }
+        return service.save(existing);
+    }
+
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
     @DeleteMapping("/{id}") public void delete(@PathVariable Long id, Authentication auth){
         User caller = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();

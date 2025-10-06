@@ -5,6 +5,10 @@ import com.traininginsights.model.AthleteCategory;
 import com.traininginsights.model.RoleName;
 import com.traininginsights.model.User;
 import com.traininginsights.service.UserService;
+import com.traininginsights.service.UserTokenService;
+import com.traininginsights.service.EmailService;
+import com.traininginsights.service.AppConfigService;
+import com.traininginsights.model.TokenType;
 import com.traininginsights.repository.UserRepository;
 import com.traininginsights.repository.ClubRepository;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,7 +25,10 @@ public class UserController {
     private final UserService userService;
     private final UserRepository userRepository;
     private final ClubRepository clubRepository;
-    public UserController(UserService userService, UserRepository userRepository, ClubRepository clubRepository){ this.userService = userService; this.userRepository = userRepository; this.clubRepository = clubRepository; }
+    private final UserTokenService userTokenService;
+    private final EmailService emailService;
+    private final AppConfigService appConfigService;
+    public UserController(UserService userService, UserRepository userRepository, ClubRepository clubRepository, UserTokenService userTokenService, EmailService emailService, AppConfigService appConfigService){ this.userService = userService; this.userRepository = userRepository; this.clubRepository = clubRepository; this.userTokenService = userTokenService; this.emailService = emailService; this.appConfigService = appConfigService; }
 
     @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN','TRAINER')")
     @GetMapping
@@ -126,6 +133,21 @@ public class UserController {
         patch.put("address", req.address);
         patch.put("dailyReminderTime", req.dailyReminderTime);
         User u = userService.updateUser(caller.getId(), patch);
+        // generate activation token & send email (best-effort) if user has email
+        try {
+            if (u.getEmail() != null) {
+                String token = userTokenService.generateToken(u, TokenType.ACTIVATION, 24);
+                // choose a club SMTP if user assigned clubs
+                com.traininginsights.model.Club smtpClub = u.getClubs().stream().filter(c->c.getSmtpHost()!=null).findFirst().orElse(null);
+                String baseUrl = appConfigService.getBaseUrl();
+                String link = baseUrl + "/activate?token=" + token;
+                String text = "Welcome! Activate your account using this link (valid 24h):\n" + link;
+                String html = "<html><body><h2>Welcome to Training Insights</h2><p>Activate your account to get started. The link is valid for 24 hours.</p><p><a href='" + link + "' style='display:inline-block;padding:10px 16px;background:#2e7d32;color:#fff;text-decoration:none;border-radius:4px;font-weight:600'>Activate Account</a></p><p>If the button does not work, copy & paste this URL:<br>" + link + "</p><hr><small>Training Insights</small></body></html>";
+                if (smtpClub != null) {
+                    emailService.sendHtmlMail(smtpClub, u.getEmail(), "Activate your account", html, text);
+                }
+            }
+        } catch (Exception ignored) {}
         return toDTO(u);
     }
 

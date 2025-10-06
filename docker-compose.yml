@@ -30,6 +30,8 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       # Explicit uploads dir inside container; persist via volume below
       APP_UPLOADS_DIR: /opt/app/uploads
+      APP_ATTACHMENTS_MAX_MB: 25
+      APP_PUBLIC_ENV: local
     depends_on:
       db:
         condition: service_healthy

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { formatIsoDateTime, formatIsoDate } from '../common/dateUtils'
 import api from '../api/client'
 import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Chip, Box, Tabs, Tab } from '@mui/material'
 import { useSnackbar } from '../common/SnackbarProvider'
@@ -6,6 +7,7 @@ import QuestionnaireForm from '../common/QuestionnaireForm'
 import TrainingsListCalendar from '../common/TrainingsListCalendar'
 import UnreadBadge from '../common/UnreadBadge'
 import NotificationsInbox from '../pages/NotificationsInbox'
+import GroupColorLegend from '../common/GroupColorLegend'
 export default function AthleteDashboard({ initialSection }){
   const [trainings, setTrainings] = useState([])
   const [pending, setPending] = useState([])
@@ -24,6 +26,8 @@ export default function AthleteDashboard({ initialSection }){
   const [responseViewValues, setResponseViewValues] = useState({})
   const [historyOpen, setHistoryOpen] = useState(false)
   const [attachments, setAttachments] = useState({})
+  const [presenceSaving, setPresenceSaving] = useState(false)
+  const [presenceStatus, setPresenceStatus] = useState(null) // { present: bool, updatedAt }
   // read persisted view mode (matches TrainingsPage)
   const storedView = typeof window !== 'undefined' ? window.localStorage.getItem('trainings.viewMode') : null
   const [viewMode, setViewMode] = useState(storedView || 'calendar')
@@ -178,6 +182,9 @@ export default function AthleteDashboard({ initialSection }){
                 if (!t) t = trainings.find(x=>String(x.id) === String(id))
                 const { data: vt } = await api.get(`/api/athlete/trainings/${t.id}/view`)
                 setViewTraining(vt)
+                // presence info returned as vt.myPresence
+                if (vt.myPresence) setPresenceStatus({ present: !!vt.myPresence.present, updatedAt: vt.myPresence.updatedAt })
+                else setPresenceStatus(null)
                 // compute athlete's own responses for this training from `filled` (always available to athletes)
                 const pre = (filled||[]).filter(r => r.training && String(r.training.id) === String(t.id) && r.questionnaire && vt.preQuestionnaire && r.questionnaire.id === vt.preQuestionnaire.id)
                 const post = (filled||[]).filter(r => r.training && String(r.training.id) === String(t.id) && r.questionnaire && vt.postQuestionnaire && r.questionnaire.id === vt.postQuestionnaire.id)
@@ -192,7 +199,7 @@ export default function AthleteDashboard({ initialSection }){
             renderItemContent={(t) => (
               <>
                 <Typography>{t.title}</Typography>
-                <Typography variant="body2">{new Date(t.trainingTime).toLocaleString()}</Typography>
+                <Typography variant="body2">{formatIsoDateTime(t.trainingTime)}</Typography>
                 <Stack direction="row" spacing={1} sx={{ mt:1, flexWrap:'wrap' }}>
                   {(t.groups||[]).map(g => <Chip key={g.id} label={g.name} size="small" />)}
                 </Stack>
@@ -203,6 +210,8 @@ export default function AthleteDashboard({ initialSection }){
                 try {
                   const { data: vt } = await api.get(`/api/athlete/trainings/${t.id}/view`)
                   setViewTraining(vt)
+                  if (vt.myPresence) setPresenceStatus({ present: !!vt.myPresence.present, updatedAt: vt.myPresence.updatedAt })
+                  else setPresenceStatus(null)
                   // compute athlete's own responses for this training from `filled` (available even when not visible)
                   const pre = (filled||[]).filter(r => r.training && String(r.training.id) === String(t.id) && r.questionnaire && vt.preQuestionnaire && r.questionnaire.id === vt.preQuestionnaire.id)
                   const post = (filled||[]).filter(r => r.training && String(r.training.id) === String(t.id) && r.questionnaire && vt.postQuestionnaire && r.questionnaire.id === vt.postQuestionnaire.id)
@@ -216,6 +225,15 @@ export default function AthleteDashboard({ initialSection }){
               }}>View</Button>
             )}
           />
+          {viewMode === 'calendar' && (
+            <GroupColorLegend
+              groups={(()=>{
+                const seen = new Map()
+                ;(trainings||[]).forEach(t => (t.groups||[]).forEach(g => { if (g && g.id != null && !seen.has(g.id)) seen.set(g.id, g) }))
+                return Array.from(seen.values())
+              })()}
+            />
+          )}
         </Paper>
       </Box>
 
@@ -238,7 +256,7 @@ export default function AthleteDashboard({ initialSection }){
                 {keys.map(k => {
                   const t = trainings.find(x=>String(x.id)===k)
                   const title = t ? t.title : `Training ${k}`
-                  const date = t?.trainingTime ? new Date(t.trainingTime).toLocaleString() : ''
+                  const date = t?.trainingTime ? formatIsoDateTime(t.trainingTime) : ''
                   return (
                     <Paper key={k} sx={{ p:2 }}>
                       <Typography variant="subtitle1">{title} {date ? `— ${date}` : ''}</Typography>
@@ -289,7 +307,7 @@ export default function AthleteDashboard({ initialSection }){
             {(() => {
               const byDate = {}
               ;(filled||[]).forEach(r => {
-                const d = r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : 'Unknown'
+                const d = r.submittedAt ? formatIsoDate(r.submittedAt) : 'Unknown'
                 if (!byDate[d]) byDate[d] = []
                 byDate[d].push(r)
               })
@@ -300,7 +318,7 @@ export default function AthleteDashboard({ initialSection }){
                     <Paper key={r.id} sx={{ p:1, display:'flex', justifyContent:'space-between', alignItems:'center', mt:1 }}>
                       <div>
                         <Typography>{allQuestionnaires.find(q=>q.id===r.questionnaire?.id)?.title || `Q ${r.questionnaire?.id}`}</Typography>
-                        <Typography variant="body2">Submitted at: {r.submittedAt ? new Date(r.submittedAt).toLocaleString() : '—'}</Typography>
+                        <Typography variant="body2">Submitted at: {r.submittedAt ? formatIsoDateTime(r.submittedAt) : '—'}</Typography>
                       </div>
                       <div>
                         <Button size="small" onClick={()=>{ const q = allQuestionnaires.find(qt => qt.id === r.questionnaire?.id); setResponseViewStructure(q?.structure); try{ setResponseViewValues(typeof r.responses === 'string' ? JSON.parse(r.responses) : r.responses) }catch(e){ setResponseViewValues({}) } setResponseViewOpen(true) }}>View</Button>
@@ -327,7 +345,7 @@ export default function AthleteDashboard({ initialSection }){
                 <Typography variant="subtitle2" color="text.secondary">Name</Typography>
                 <Typography variant="h6">{viewTraining.title}</Typography>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ mt:1 }}>Start / End</Typography>
-                <Typography variant="body2">{new Date(viewTraining.trainingTime).toLocaleString()}{viewTraining.trainingEndTime ? ` — ${new Date(viewTraining.trainingEndTime).toLocaleString()}` : ''}</Typography>
+                <Typography variant="body2">{formatIsoDateTime(viewTraining.trainingTime)}{viewTraining.trainingEndTime ? ` — ${formatIsoDateTime(viewTraining.trainingEndTime)}` : ''}</Typography>
               <Stack direction="row" spacing={1} sx={{ mt:1, flexWrap:'wrap' }}>
                 {(viewTraining.groups||[]).map(g => <Chip key={g.id} label={g.name} size="small" />)}
               </Stack>
@@ -367,7 +385,7 @@ export default function AthleteDashboard({ initialSection }){
                         {(trainingResponses.pre||[]).length === 0 ? <Typography variant="body2">No pre-training response</Typography> : trainingResponses.pre.map(r => (
                           <div key={r.id} style={{ border: '1px solid #eee', padding: 8, marginBottom: 8 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Typography variant="body2">Submitted at: {new Date(r.submittedAt).toLocaleString()}</Typography>
+                              <Typography variant="body2">Submitted at: {formatIsoDateTime(r.submittedAt)}</Typography>
                               <Button size="small" onClick={()=>{ try { const q = allQuestionnaires.find(qt => qt.id === r.questionnaire?.id); setResponseViewStructure(q?.structure); try{ setResponseViewValues(typeof r.responses === 'string' ? JSON.parse(r.responses) : r.responses) }catch(e){ setResponseViewValues({}) } setResponseViewOpen(true) } catch(e){} }}>View</Button>
                             </div>
                           </div>
@@ -386,7 +404,7 @@ export default function AthleteDashboard({ initialSection }){
                         {(trainingResponses.post||[]).length === 0 ? <Typography variant="body2">No post-training response</Typography> : trainingResponses.post.map(r => (
                           <div key={r.id} style={{ border: '1px solid #eee', padding: 8, marginBottom: 8 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Typography variant="body2">Submitted at: {new Date(r.submittedAt).toLocaleString()}</Typography>
+                              <Typography variant="body2">Submitted at: {formatIsoDateTime(r.submittedAt)}</Typography>
                               <Button size="small" onClick={()=>{ try { const q = allQuestionnaires.find(qt => qt.id === r.questionnaire?.id); setResponseViewStructure(q?.structure); try{ setResponseViewValues(typeof r.responses === 'string' ? JSON.parse(r.responses) : r.responses) }catch(e){ setResponseViewValues({}) } setResponseViewOpen(true) } catch(e){} }}>View</Button>
                             </div>
                           </div>
@@ -399,6 +417,23 @@ export default function AthleteDashboard({ initialSection }){
                 // no questionnaires; if training not visible, show not-available message
                 !viewTraining.visibleToAthletes ? <Typography variant="body2" color="text.secondary">This training is not available for athletes — only basic info is shown.</Typography> : null
               )}
+              {/* Presence toggle */}
+              <div>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mt:1 }}>My Presence</Typography>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt:0.5 }}>
+                  <Button size="small" variant={presenceStatus?.present ? 'contained' : 'outlined'} color={presenceStatus?.present ? 'success' : 'primary'} disabled={presenceSaving} onClick={async ()=>{
+                    if (!viewTraining) return; setPresenceSaving(true)
+                    try { const { data } = await api.post(`/api/athlete/trainings/${viewTraining.id}/presence`, { present: true }); setPresenceStatus({ present: true, updatedAt: data.updatedAt }); showSnackbar('Marked present') } catch(e){ showSnackbar('Failed: ' + (e?.response?.data?.message || e.message)) } finally { setPresenceSaving(false) }
+                  }}>Present</Button>
+                  <Button size="small" variant={presenceStatus && !presenceStatus.present ? 'contained' : 'outlined'} color={presenceStatus && !presenceStatus.present ? 'warning' : 'primary'} disabled={presenceSaving} onClick={async ()=>{
+                    if (!viewTraining) return; setPresenceSaving(true)
+                    try { const { data } = await api.post(`/api/athlete/trainings/${viewTraining.id}/presence`, { present: false }); setPresenceStatus({ present: false, updatedAt: data.updatedAt }); showSnackbar('Marked absent') } catch(e){ showSnackbar('Failed: ' + (e?.response?.data?.message || e.message)) } finally { setPresenceSaving(false) }
+                  }}>Absent</Button>
+                  {presenceStatus && (
+                    <Typography variant="caption" color="text.secondary">Updated: {presenceStatus.updatedAt ? formatIsoDateTime(presenceStatus.updatedAt) : ''}</Typography>
+                  )}
+                </Stack>
+              </div>
             </Stack>
           )}
         </DialogContent>

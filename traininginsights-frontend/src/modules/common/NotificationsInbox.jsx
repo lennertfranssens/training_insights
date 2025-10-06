@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
+import { formatIsoDateTime } from '../common/dateUtils'
 import api from '../api/client'
-import { Paper, Stack, Typography, IconButton, List, ListItem, ListItemText, ListItemSecondaryAction, Button, Switch, FormControlLabel, Dialog, DialogTitle, DialogContent, DialogActions, Pagination, Select, MenuItem, Chip } from '@mui/material'
+import { Paper, Stack, Typography, IconButton, List, ListItem, ListItemText, ListItemSecondaryAction, Button, Switch, FormControlLabel, Dialog, DialogTitle, DialogContent, DialogActions, Pagination, Select, MenuItem, Chip, Box } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
 import MarkEmailReadIcon from '@mui/icons-material/MarkEmailRead'
 import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread'
@@ -61,6 +62,29 @@ export default function NotificationsInbox(){
 
   const openDetail = (n) => { setActive(n); setDetailOpen(true); if (!n.isRead) toggleRead(n.id, true) }
 
+  const downloadAttachment = async (attachment) => {
+    try {
+      if (!attachment?.id) return
+      const { data, headers } = await api.get(`/api/notifications/attachments/${attachment.id}`, { responseType: 'blob' })
+      const blob = new Blob([data])
+      // Extract filename from header or fallback to attachment.filename
+      let filename = attachment.filename || 'attachment'
+      const dispo = headers['content-disposition'] || headers['Content-Disposition']
+      if (dispo){
+        const m = dispo.match(/filename="?([^";]+)"?/)
+        if (m && m[1]) filename = m[1]
+      }
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch(e){ /* optionally show snackbar if needed */ }
+  }
+
   return (
     <Paper sx={{ p:2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb:2 }}>
@@ -119,7 +143,16 @@ export default function NotificationsInbox(){
         <DialogTitle>{active?.title}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{active?.body}</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display:'block', mt:2 }}>{active?.sentAt ? `Sent at: ${new Date(active.sentAt).toLocaleString()}` : ''}</Typography>
+          {Array.isArray(active?.attachments) && active.attachments.length > 0 && (
+            <Box sx={{ mt:2, display:'flex', flexDirection:'column', gap:0.5 }}>
+              {active.attachments.map(a => (
+                <Button key={a.id} size="small" variant="text" sx={{ justifyContent:'flex-start', p:0, minWidth:0, fontSize:13, textTransform:'none' }} onClick={()=>downloadAttachment(a)}>
+                  📎 {a.filename}
+                </Button>
+              ))}
+            </Box>
+          )}
+          <Typography variant="caption" color="text.secondary" sx={{ display:'block', mt:2 }}>{active?.sentAt ? `Sent at: ${formatIsoDateTime(active.sentAt)}` : ''}</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={()=>setDetailOpen(false)}>Close</Button>

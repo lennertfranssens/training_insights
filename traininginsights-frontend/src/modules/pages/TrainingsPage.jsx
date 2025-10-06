@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { formatIsoDateTime } from '../common/dateUtils'
 import api from '../api/client'
 import { useSnackbar } from '../common/SnackbarProvider'
 import { useAuth } from '../auth/AuthContext'
@@ -8,10 +9,12 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker'
 import dayjs from 'dayjs'
 import QuestionnaireForm from '../common/QuestionnaireForm'
+import PlaceholderText from '../common/PlaceholderText'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import TrainingsListCalendar from '../common/TrainingsListCalendar'
+import GroupColorLegend from '../common/GroupColorLegend'
 export default function TrainingsPage(){
   const [trainings, setTrainings] = useState([])
   const [presenceRates, setPresenceRates] = useState({}) // trainingId -> rate (0..1)
@@ -31,6 +34,7 @@ export default function TrainingsPage(){
   const [selectedResponseOpen, setSelectedResponseOpen] = useState(false)
   const [rosters, setRosters] = useState({}) // trainingId -> [{ userId, firstName, lastName, email, groupId, groupName, present }]
   const [bulkLoadingByTraining, setBulkLoadingByTraining] = useState({}) // trainingId -> boolean
+  const [attendanceFilterByTraining, setAttendanceFilterByTraining] = useState({}) // trainingId -> string filter
   // helper to download/open an attachment using the API client (sends Authorization header)
   const openAttachment = async (attachmentId, filename) => {
     try {
@@ -244,10 +248,26 @@ export default function TrainingsPage(){
             }
           } catch (e) { console.error(e) }
         }}
+            autoFocusToday={true}
+      onReschedule={async (trainingId, newStartIso, newEndIso)=>{
+              // Optimistic local update
+              setTrainings(prev => prev.map(t => String(t.id)===String(trainingId) ? { ...t, trainingTime: newStartIso, trainingEndTime: newEndIso || t.trainingEndTime } : t))
+              try {
+                await api.patch(`/api/trainings/${trainingId}/reschedule`, { trainingTime: newStartIso, trainingEndTime: newEndIso || null })
+                showSnackbar('Training rescheduled')
+                // refresh in background
+                load()
+              } catch (e) {
+                showSnackbar('Failed to reschedule');
+                // revert by reloading
+                load();
+                throw e
+              }
+            }}
         renderItemContent={(t)=> (
           <>
             <Typography>{t.title}</Typography>
-            <Typography variant="body2">{new Date(t.trainingTime).toLocaleString()}</Typography>
+            <Typography variant="body2">{formatIsoDateTime(t.trainingTime)}</Typography>
             <Stack direction="row" spacing={1} sx={{ mt:1, flexWrap:'wrap' }}>
               {(t.groups||[]).map(g => <Chip key={g.id} label={g.name} size="small" />)}
             </Stack>
@@ -305,6 +325,9 @@ export default function TrainingsPage(){
           </Stack>
         )}
       />
+      {viewMode === 'calendar' && (
+        <GroupColorLegend groups={groups.filter(g => !groupFilter || String(g.id) === String(groupFilter))} />
+      )}
       <Dialog open={open} onClose={()=>{ setOpen(false); setEditingTraining(null); }} maxWidth="sm" fullWidth>
         <DialogTitle>{editingTraining ? 'Edit Training' : 'Create Training'}</DialogTitle>
         <DialogContent>
@@ -392,7 +415,7 @@ export default function TrainingsPage(){
                           <Button size="small" color="error" onClick={()=>setFileToUpload(null)}>Remove</Button>
                         </span>
                       ) : (
-                        <span style={{ color: 'rgba(0,0,0,0.6)' }}>No file selected (optional)</span>
+                        <PlaceholderText>No file selected (optional)</PlaceholderText>
                       )}
                     </span>
                   </div>
@@ -418,45 +441,43 @@ export default function TrainingsPage(){
               <Card variant="outlined">
                 <CardHeader title="Attendance" subheader="Bulk actions and per-athlete presence" />
                 <CardContent>
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb:1, flexWrap:'wrap' }}>
-                    <TextField select size="small" label="Bulk group" value={bulkGroupByTraining[editingTraining.id] || ''} onChange={e=>setBulkGroupByTraining(prev => ({ ...prev, [editingTraining.id]: e.target.value }))} sx={{ minWidth: 180 }}>
-                      <MenuItem value="">All groups</MenuItem>
-                      {(editingTraining.groups||[]).map(g => <MenuItem key={g.id} value={String(g.id)}>{g.name}</MenuItem>)}
-                    </TextField>
-                    <Button size="small" variant="outlined" disabled={!!bulkLoadingByTraining[editingTraining.id]} onClick={async()=>{
-                      try {
-                        setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: true }))
-                        const { data } = await api.post(`/api/trainings/${editingTraining.id}/attendance/bulk`, { action: 'presentAll', groupId: bulkGroupByTraining[editingTraining.id] || null });
-                        showSnackbar(`Marked ${data?.updated||0} present`)
-                        // refresh roster and rate
-                        try { const { data: roster } = await api.get(`/api/trainings/${editingTraining.id}/attendance`); setRosters(prev => ({ ...prev, [editingTraining.id]: roster })); } catch(e){}
-                        try { const { data: rate } = await api.get(`/api/trainings/${editingTraining.id}/attendance/rate`); setPresenceRates(prev => ({ ...prev, [editingTraining.id]: rate?.presenceRate || 0 })); } catch(e){}
-                      } catch(e) { showSnackbar('Bulk present failed') }
-                      finally { setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: false })) }
-                    }}>All present</Button>
-                    <Button size="small" variant="outlined" disabled={!!bulkLoadingByTraining[editingTraining.id]} onClick={async()=>{
-                      try {
-                        setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: true }))
-                        const { data } = await api.post(`/api/trainings/${editingTraining.id}/attendance/bulk`, { action: 'absentAll', groupId: bulkGroupByTraining[editingTraining.id] || null });
-                        showSnackbar(`Marked ${data?.updated||0} absent`)
-                        try { const { data: roster } = await api.get(`/api/trainings/${editingTraining.id}/attendance`); setRosters(prev => ({ ...prev, [editingTraining.id]: roster })); } catch(e){}
-                        try { const { data: rate } = await api.get(`/api/trainings/${editingTraining.id}/attendance/rate`); setPresenceRates(prev => ({ ...prev, [editingTraining.id]: rate?.presenceRate || 0 })); } catch(e){}
-                      } catch(e) { showSnackbar('Bulk absent failed') }
-                      finally { setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: false })) }
-                    }}>All absent</Button>
-                    <Button size="small" variant="outlined" disabled={!!bulkLoadingByTraining[editingTraining.id]} onClick={async()=>{
-                      try {
-                        setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: true }))
-                        const { data } = await api.post(`/api/trainings/${editingTraining.id}/attendance/bulk`, { action: 'invert', groupId: bulkGroupByTraining[editingTraining.id] || null });
-                        showSnackbar(`Inverted ${data?.updated||0} attendances`)
-                        try { const { data: roster } = await api.get(`/api/trainings/${editingTraining.id}/attendance`); setRosters(prev => ({ ...prev, [editingTraining.id]: roster })); } catch(e){}
-                        try { const { data: rate } = await api.get(`/api/trainings/${editingTraining.id}/attendance/rate`); setPresenceRates(prev => ({ ...prev, [editingTraining.id]: rate?.presenceRate || 0 })); } catch(e){}
-                      } catch(e) { showSnackbar('Bulk invert failed') }
-                      finally { setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: false })) }
-                    }}>Invert</Button>
-                    {bulkLoadingByTraining[editingTraining.id] && (
-                      <CircularProgress size={18} sx={{ ml: 1 }} />
-                    )}
+                  <Stack spacing={1.5} sx={{ mb:2 }}>
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap:'nowrap', overflowX:'auto', pb:0.5 }}>
+                      <TextField select size="small" label="Bulk group" value={bulkGroupByTraining[editingTraining.id] || ''} onChange={e=>setBulkGroupByTraining(prev => ({ ...prev, [editingTraining.id]: e.target.value }))} sx={{ minWidth: 200 }}>
+                        <MenuItem value="">All groups</MenuItem>
+                        {(editingTraining.groups||[]).map(g => <MenuItem key={g.id} value={String(g.id)}>{g.name}</MenuItem>)}
+                      </TextField>
+                      <TextField size="small" label="Filter" value={attendanceFilterByTraining[editingTraining.id] || ''} onChange={e=>setAttendanceFilterByTraining(prev => ({ ...prev, [editingTraining.id]: e.target.value }))} sx={{ minWidth: 220 }} placeholder="Search name/group" />
+                      <Button size="small" variant="outlined" onClick={async()=>{
+                        try { const { data: roster } = await api.get(`/api/trainings/${editingTraining.id}/attendance`); setRosters(prev => ({ ...prev, [editingTraining.id]: roster })); showSnackbar('Roster loaded') } catch(e){ showSnackbar('Failed to load roster') }
+                      }}>Load</Button>
+                    </Stack>
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap:'wrap', pt:1, borderTop:'1px dashed rgba(0,0,0,0.15)' }}>
+                      <Button size="small" variant="outlined" disabled={!!bulkLoadingByTraining[editingTraining.id]} onClick={async()=>{
+                        try {
+                          setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: true }))
+                          const { data } = await api.post(`/api/trainings/${editingTraining.id}/attendance/bulk`, { action: 'presentAll', groupId: bulkGroupByTraining[editingTraining.id] || null });
+                          showSnackbar(`Marked ${data?.updated||0} present`)
+                          // refresh roster and rate
+                          try { const { data: roster } = await api.get(`/api/trainings/${editingTraining.id}/attendance`); setRosters(prev => ({ ...prev, [editingTraining.id]: roster })); } catch(e){}
+                          try { const { data: rate } = await api.get(`/api/trainings/${editingTraining.id}/attendance/rate`); setPresenceRates(prev => ({ ...prev, [editingTraining.id]: rate?.presenceRate || 0 })); } catch(e){}
+                        } catch(e) { showSnackbar('Bulk present failed') }
+                        finally { setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: false })) }
+                      }}>All present</Button>
+                      <Button size="small" variant="outlined" disabled={!!bulkLoadingByTraining[editingTraining.id]} onClick={async()=>{
+                        try {
+                          setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: true }))
+                          const { data } = await api.post(`/api/trainings/${editingTraining.id}/attendance/bulk`, { action: 'absentAll', groupId: bulkGroupByTraining[editingTraining.id] || null });
+                          showSnackbar(`Marked ${data?.updated||0} absent`)
+                          try { const { data: roster } = await api.get(`/api/trainings/${editingTraining.id}/attendance`); setRosters(prev => ({ ...prev, [editingTraining.id]: roster })); } catch(e){}
+                          try { const { data: rate } = await api.get(`/api/trainings/${editingTraining.id}/attendance/rate`); setPresenceRates(prev => ({ ...prev, [editingTraining.id]: rate?.presenceRate || 0 })); } catch(e){}
+                        } catch(e) { showSnackbar('Bulk absent failed') }
+                        finally { setBulkLoadingByTraining(prev => ({ ...prev, [editingTraining.id]: false })) }
+                      }}>All absent</Button>
+                      {bulkLoadingByTraining[editingTraining.id] && (
+                        <CircularProgress size={18} sx={{ ml: 1 }} />
+                      )}
+                    </Stack>
                   </Stack>
                   {/* Roster table */}
                   <div style={{ overflowX: 'auto' }}>
@@ -469,7 +490,20 @@ export default function TrainingsPage(){
                         </tr>
                       </thead>
                       <tbody>
-                        {(rosters[editingTraining.id]||[]).map(a => (
+                        {(rosters[editingTraining.id]||[])
+                          .filter(a => {
+                            // apply name/group text filter
+                            const f = (attendanceFilterByTraining[editingTraining.id]||'').trim().toLowerCase(); if (f) {
+                              const name = `${a.firstName||''} ${a.lastName||''}`.toLowerCase();
+                              const group = (a.groupName||'').toLowerCase();
+                              if (!(name.includes(f) || group.includes(f))) return false;
+                            }
+                            // apply group filter (bulk group acts as filter for display too)
+                            const gFilter = bulkGroupByTraining[editingTraining.id];
+                            if (gFilter && String(a.groupId) !== String(gFilter)) return false;
+                            return true;
+                          })
+                          .map(a => (
                           <tr key={a.userId}>
                             <td style={{ padding:'6px 8px', borderBottom:'1px solid #eee' }}>{a.lastName} {a.firstName}</td>
                             <td style={{ padding:'6px 8px', borderBottom:'1px solid #eee' }}>{a.groupName || '-'}</td>
@@ -506,9 +540,9 @@ export default function TrainingsPage(){
                       <Typography variant="subtitle3">Pre-training</Typography>
                       {(questionnaireResponses[editingTraining.id].pre || []).length === 0 ? <Typography variant="body2">None</Typography> : (
                         <ul>
-                          {questionnaireResponses[editingTraining.id].pre.map(r => (
+                              {questionnaireResponses[editingTraining.id].pre.map(r => (
                             <li key={r.id}>
-                              {r.user.firstName} {r.user.lastName} — {new Date(r.submittedAt).toLocaleString()}
+                              {r.user.firstName} {r.user.lastName} — {formatIsoDateTime(r.submittedAt)}
                               <Button size="small" onClick={()=>{ setSelectedResponse({ ...r, questionnaireId: r.questionnaireId }); setSelectedResponseOpen(true) }} sx={{ ml:1 }}>View</Button>
                             </li>
                           ))}
@@ -519,9 +553,9 @@ export default function TrainingsPage(){
                       <Typography variant="subtitle3">Post-training</Typography>
                       {(questionnaireResponses[editingTraining.id].post || []).length === 0 ? <Typography variant="body2">None</Typography> : (
                         <ul>
-                          {questionnaireResponses[editingTraining.id].post.map(r => (
+                              {questionnaireResponses[editingTraining.id].post.map(r => (
                             <li key={r.id}>
-                              {r.user.firstName} {r.user.lastName} — {new Date(r.submittedAt).toLocaleString()}
+                              {r.user.firstName} {r.user.lastName} — {formatIsoDateTime(r.submittedAt)}
                               <Button size="small" onClick={()=>{ setSelectedResponse({ ...r, questionnaireId: r.questionnaireId }); setSelectedResponseOpen(true) }} sx={{ ml:1 }}>View</Button>
                             </li>
                           ))}

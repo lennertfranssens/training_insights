@@ -9,13 +9,7 @@ export function AuthProvider({ children }){
     const payload = { token: data.token, roles: data.roles, email: data.email, userId: data.userId }
     setAuth(payload); localStorage.setItem('ti_auth', JSON.stringify(payload)); return payload
   }
-  const signup = async (payload) => {
-    const res = await api.post('/api/auth/signup', payload)
-    const data = res.data
-    const authData = { token: data.token, roles: data.roles, email: data.email, userId: data.userId }
-    setAuth(authData); localStorage.setItem('ti_auth', JSON.stringify(authData)); return authData
-  }
   const signout = () => { setAuth(null); localStorage.removeItem('ti_auth') }
-  return <AuthContext.Provider value={{ auth, signin, signup, signout }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ auth, signin, signout }}>{children}</AuthContext.Provider>
 }
 export function useAuth(){ return useContext(AuthContext) }

@@ -71,13 +71,7 @@ export default function GroupsPage(){
               {(hasRole(auth?.roles || me?.roles, 'ROLE_ADMIN') || hasRole(auth?.roles || me?.roles, 'ROLE_TRAINER')) && (
                 <Button color="error" onClick={()=>remove(g.id)} sx={{ mr:1 }}>Delete</Button>
               )}
-              {(hasRole(auth?.roles || me?.roles, 'ROLE_TRAINER')) && <Button variant="outlined" onClick={()=> {
-                // Prepare Create Notification page with the clubs for this group
-                try { sessionStorage.setItem('preselectedNotificationClubs', JSON.stringify(g.clubIds || [])) } catch(e) {}
-                // navigate to the correct dashboard tab depending on role: trainers -> tab 6 (trainer create), admins -> tab 7 (admin create)
-                const isTrainer = hasRole(auth?.roles || me?.roles, 'ROLE_TRAINER')
-                window.dispatchEvent(new CustomEvent('navigate-dashboard', { detail: { section: 'notifications', tab: isTrainer ? 6 : 7 } }))
-              }}>Send to group</Button>}
+              {/* Removed 'Send to group' button (non-functional for trainers) */}
             </div>
           </Paper>
         ))}

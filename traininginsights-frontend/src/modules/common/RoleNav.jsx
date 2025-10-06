@@ -13,6 +13,7 @@ export function getNavItems(roles = []){
       { label: 'Admins', to: '/dashboard/admins' },
       { label: 'Users', to: '/dashboard/users' },
       { label: 'Backup', to: '/dashboard/backup' },
+      { label: 'Base URL', to: '/dashboard/super/base-url' },
     )
   }
 

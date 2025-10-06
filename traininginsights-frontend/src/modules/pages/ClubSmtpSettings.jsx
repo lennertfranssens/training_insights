@@ -5,6 +5,8 @@ export default function ClubSmtpSettings({clubId}){
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({smtpHost:'', smtpPort:'', smtpUsername:'', smtpPassword:'', smtpFrom:'', smtpUseTls:true});
   const [message, setMessage] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   useEffect(()=>{
     if (!clubId) return;
@@ -30,6 +32,17 @@ export default function ClubSmtpSettings({clubId}){
     setMessage(null);
     const payload = {...form, smtpPort: form.smtpPort ? parseInt(form.smtpPort) : null};
     api.put(`/api/clubs/admin/${clubId}/smtp`, payload).then(()=> setMessage('Saved')).catch(()=> setMessage('Save failed'));
+  }
+
+  async function onTest(){
+    setTesting(true); setTestResult(null);
+    try {
+      const payload = { ...form, smtpPort: form.smtpPort ? parseInt(form.smtpPort) : null };
+      const { data } = await api.post(`/api/clubs/admin/${clubId}/smtp/test`, payload);
+      setTestResult(data);
+    } catch (e){
+      setTestResult({ success:false, message: 'Test failed' });
+    } finally { setTesting(false); }
   }
 
   if (!clubId) return <div>Select a club to edit SMTP settings</div>;
@@ -63,7 +76,13 @@ export default function ClubSmtpSettings({clubId}){
       </div>
       <div style={{marginTop:8}}>
         <button onClick={onSave}>Save</button>
+        <button style={{marginLeft:8}} onClick={onTest} disabled={testing}>{testing ? 'Testing...' : 'Test SMTP'}</button>
         {message && <span style={{marginLeft:8}}>{message}</span>}
+        {testResult && (
+          <span style={{marginLeft:8, color: testResult.success ? 'green' : 'red'}}>
+            {testResult.success ? 'SMTP OK' : 'SMTP Fail'}{testResult.message ? `: ${testResult.message}` : ''}
+          </span>
+        )}
       </div>
     </div>
   )

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { formatIsoDate } from '../common/dateUtils'
 import api from '../api/client'
 // Compose notification UI moved to a dedicated page for clarity
 import { Paper, Typography, Stack, TextField, MenuItem, Button, Table, TableHead, TableRow, TableCell, TableBody, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, Checkbox, Box, ToggleButtonGroup, ToggleButton } from '@mui/material'
@@ -199,8 +200,8 @@ export default function ClubMembersPage(){
                 <TableCell>{(() => { const u = users.find(x => x.id === m.userId); return u ? (u.roles || []).join(', ') : '' })()}</TableCell>
                 <TableCell>{m.groupName || ''}</TableCell>
                 <TableCell>{m.seasonName || m.season?.name}</TableCell>
-                <TableCell>{m.startDate ? new Date(m.startDate).toLocaleDateString() : ''}</TableCell>
-                <TableCell>{m.endDate ? new Date(m.endDate).toLocaleDateString() : ''}</TableCell>
+                <TableCell>{formatIsoDate(m.startDate)}</TableCell>
+                <TableCell>{formatIsoDate(m.endDate)}</TableCell>
                 <TableCell>
                   <Button size="small" onClick={()=>endMembership(m.id)}>End</Button>
                   <Button size="small" onClick={()=>openRenew(m.id)}>Renew</Button>

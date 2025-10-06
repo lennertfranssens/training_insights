@@ -7,6 +7,7 @@ import com.traininginsights.repository.TrainingRepository;
 import com.traininginsights.repository.UserRepository;
 import com.traininginsights.service.QuestionnaireResponseService;
 import com.traininginsights.service.TrainingService;
+import com.traininginsights.service.TrainingAttendanceService;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpStatus;
@@ -25,13 +26,20 @@ public class AthleteController {
     private final TrainingRepository trainingRepository;
     private final QuestionnaireRepository questionnaireRepository;
     private final QuestionnaireResponseService responseService;
+    private final TrainingAttendanceService attendanceService;
 
-    public AthleteController(UserRepository userRepository, TrainingService trainingService, TrainingRepository trainingRepository, QuestionnaireRepository questionnaireRepository, QuestionnaireResponseService responseService) {
+    public AthleteController(UserRepository userRepository,
+                             TrainingService trainingService,
+                             TrainingRepository trainingRepository,
+                             QuestionnaireRepository questionnaireRepository,
+                             QuestionnaireResponseService responseService,
+                             TrainingAttendanceService attendanceService) {
         this.userRepository = userRepository;
         this.trainingService = trainingService;
         this.trainingRepository = trainingRepository;
         this.questionnaireRepository = questionnaireRepository;
         this.responseService = responseService;
+        this.attendanceService = attendanceService;
     }
 
     @GetMapping("/trainings/upcoming")
@@ -131,6 +139,43 @@ public class AthleteController {
             res.put("preQuestionnaire", t.getPreQuestionnaire() != null ? Map.of("id", t.getPreQuestionnaire().getId()) : null);
             res.put("postQuestionnaire", t.getPostQuestionnaire() != null ? Map.of("id", t.getPostQuestionnaire().getId()) : null);
         }
+        // include current athlete presence (if any)
+        var taOpt = attendanceService.byTraining(t).stream().filter(a -> a.getUser().getId().equals(athlete.getId())).findFirst();
+        res.put("myPresence", taOpt.map(a -> Map.of(
+                "present", a.isPresent(),
+                "updatedAt", a.getUpdatedAt()
+        )).orElse(null));
         return res;
+    }
+
+    // Athlete self presence endpoints
+    @GetMapping("/trainings/{id}/presence")
+    @Transactional(readOnly = true)
+    public Map<String,Object> getMyPresence(Authentication auth, @PathVariable Long id){
+        User athlete = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        Training t = trainingRepository.findById(id).orElseThrow();
+        Group g = athlete.getGroupEntity();
+        if (g == null || t.getGroups() == null || t.getGroups().stream().noneMatch(gr -> gr.getId() != null && gr.getId().equals(g.getId()))){
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not allowed to access this training");
+        }
+        var ta = attendanceService.byTraining(t).stream().filter(a -> a.getUser().getId().equals(athlete.getId())).findFirst().orElse(null);
+        boolean present = ta != null && ta.isPresent();
+        return Map.of("trainingId", t.getId(), "present", present, "updatedAt", ta != null ? ta.getUpdatedAt() : null);
+    }
+
+    @PostMapping("/trainings/{id}/presence")
+    @Transactional
+    public Map<String,Object> setMyPresence(Authentication auth, @PathVariable Long id, @RequestBody Map<String,Object> body){
+        User athlete = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        Training t = trainingRepository.findById(id).orElseThrow();
+        Group g = athlete.getGroupEntity();
+        if (g == null || t.getGroups() == null || t.getGroups().stream().noneMatch(gr -> gr.getId() != null && gr.getId().equals(g.getId()))){
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not allowed to modify presence for this training");
+        }
+        Object pv = body.get("present");
+        if (pv == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "present required");
+        boolean present = Boolean.parseBoolean(String.valueOf(pv));
+        var ta = attendanceService.setPresence(t, athlete, present);
+        return Map.of("id", ta.getId(), "trainingId", t.getId(), "present", ta.isPresent(), "updatedAt", ta.getUpdatedAt());
     }
 }

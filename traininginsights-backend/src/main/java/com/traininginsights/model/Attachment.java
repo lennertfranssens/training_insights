@@ -17,6 +17,10 @@ public class Attachment {
     @JoinColumn(name = "training_id")
     private Training training;
 
+    @ManyToOne
+    @JoinColumn(name = "notification_id")
+    private Notification notification;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -31,4 +35,7 @@ public class Attachment {
 
     public Training getTraining() { return training; }
     public void setTraining(Training training) { this.training = training; }
+
+    public Notification getNotification() { return notification; }
+    public void setNotification(Notification notification) { this.notification = notification; }
 }

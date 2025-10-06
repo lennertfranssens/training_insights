@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Chip } from '@mui/material'
+import { isoToBelgian, belgianToIso } from '../common/dateUtils'
+import { BelgianDatePicker } from '../common/BelgianPickers'
 const allRoles = ['ROLE_ATHLETE','ROLE_TRAINER','ROLE_ADMIN']
 export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' }){
   const [users, setUsers] = useState([])
@@ -20,7 +22,7 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
   useEffect(()=>{ (async ()=>{ const [{data:clubsData},{data:meData}] = await Promise.all([api.get('/api/clubs'), api.get('/api/users/me')]); setClubs(clubsData || []); setMe(meData); })() }, [])
   useEffect(()=>{ (async ()=>{ const { data } = await api.get('/api/groups'); setGroups(data || []) })() }, [])
   const create = async () => {
-    const payload = { ...form }
+  const payload = { ...form, birthDate: belgianToIso(form.birthDate) }
     await api.post('/api/users', payload)
     setOpen(false); setEditingUser(null)
   setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], groupId: null, birthDate:'', athleteCategory:'SENIOR', phone:'', address:'' })
@@ -28,7 +30,7 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
   }
 
   const save = async () => {
-    const payload = { ...form }
+  const payload = { ...form, birthDate: belgianToIso(form.birthDate) }
     if (editingUser) {
       await api.put(`/api/users/${editingUser.id}`, payload)
     } else {
@@ -92,7 +94,7 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
                   roleNames: [u.roles?.[0] || defaultRole],
                   clubIds: u.clubIds || [],
                   groupId: u.groupId || null,
-                  birthDate: u.birthDate || '',
+                  birthDate: isoToBelgian(u.birthDate) || '',
                   athleteCategory: u.athleteCategory || 'SENIOR',
                   phone: u.phone || '',
                   address: u.address || ''
@@ -112,7 +114,10 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
             <TextField label="Last name" value={form.lastName} onChange={e=>setForm({...form, lastName:e.target.value})} />
             <TextField label="Email" value={form.email} onChange={e=>setForm({...form, email:e.target.value})} />
             <TextField label="Password" type="password" value={form.password} onChange={e=>setForm({...form, password:e.target.value})} />
-            <TextField type="date" label="Birth date" InputLabelProps={{ shrink: true }} value={form.birthDate} onChange={e=>setForm({...form, birthDate: e.target.value})} />
+            <BelgianDatePicker label="Birth date" value={belgianToIso(form.birthDate)} onChange={(iso)=>{
+              // BelgianDatePicker returns iso or null; convert iso back to Belgian for storage to keep prior mapping logic
+              setForm({...form, birthDate: iso ? isoToBelgian(iso) : form.birthDate })
+            }} />
             <TextField label="Phone" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} />
             <TextField label="Address" value={form.address} onChange={e=>setForm({...form, address:e.target.value})} multiline rows={2} />
             {/* If defaultRole is provided by parent, use it and hide the selector. Otherwise show role choices constrained by caller role. */}

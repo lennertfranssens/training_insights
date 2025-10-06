@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Paper, Typography, Stack, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, Divider, LinearProgress, MenuItem, Select, FormControl, InputLabel, Autocomplete } from '@mui/material'
+import { formatBelgianDate, belgianToIso, isoToBelgian, formatIsoDate, formatIsoDateTime } from '../common/dateUtils'
+import { BelgianDatePicker } from '../common/BelgianPickers'
 import { useSnackbar } from '../common/SnackbarProvider'
 
 export default function GoalsPage(){
@@ -29,8 +31,14 @@ export default function GoalsPage(){
       // Load goals: if trainer with athleteId set, call trainer endpoint; else own goals
       const params = seasonId ? `?seasonId=${seasonId}` : ''
       let data
-      if (isTrainer() && athleteId) {
-        ({ data } = await api.get(`/api/trainers/athletes/${athleteId}/goals${params}`))
+      if (isTrainer()) {
+        if (athleteId) {
+          ({ data } = await api.get(`/api/trainers/athletes/${athleteId}/goals${params}`))
+        } else {
+          // No athlete selected yet -> do not replace goals with empty silently; keep previous or show none
+          setGoals([])
+          return
+        }
       } else {
         ({ data } = await api.get(`/api/athlete/goals${params}`))
       }
@@ -44,14 +52,13 @@ export default function GoalsPage(){
   const create = async () => {
     try {
       if (!seasonId) { showSnackbar('Please select a season for this goal'); return }
-      // validate dates
-      const errors = { start:'', end:'', range:'' }
-      if (!form.start) errors.start = 'Start date is required'
-      if (!form.end) errors.end = 'End date is required'
-      // Compare as date-only using input format yyyy-MM-dd
-      const toJsDate = (s) => { if (!s) return null; const [y,m,d] = s.split('-').map(Number); return new Date(y, (m||1)-1, d||1) }
-      const startDate = toJsDate(form.start)
-      const endDate = toJsDate(form.end)
+  // validate dates (Belgian dd/mm/yyyy)
+  const errors = { start:'', end:'', range:'' }
+  if (!form.start) errors.start = 'Start date is required'
+  if (!form.end) errors.end = 'End date is required'
+  const parse = (s)=>{ if(!s) return null; const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m) return null; return new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1])) }
+  const startDate = parse(form.start)
+  const endDate = parse(form.end)
       if (startDate && endDate && endDate < startDate) errors.range = 'End date must be on or after start date'
       const season = seasons.find(s => String(s.id) === String(seasonId))
       const seasonStart = season?.startDate ? new Date(season.startDate) : null
@@ -61,9 +68,8 @@ export default function GoalsPage(){
       setFormErrors(errors)
       if (errors.start || errors.end || errors.range) { showSnackbar(errors.start || errors.end || errors.range); return }
 
-      // send dates as dd/MM/yyyy to match backend parser without timezone pitfalls
-      const fmt = (s) => { if (!s) return null; const [y,m,d] = s.split('-'); return `${d}/${m}/${y}` }
-      await api.post('/api/athlete/goals', { start: fmt(form.start), end: fmt(form.end), description: form.description, seasonId: seasonId || null })
+  // send dates as provided (already dd/MM/yyyy)
+  await api.post('/api/athlete/goals', { start: form.start, end: form.end, description: form.description, seasonId: seasonId || null })
       setOpenCreate(false); setForm({ start:'', end:'', description:'' }); await load()
   } catch(e){ showSnackbar('Unable to create goal: ' + (e?.response?.data?.message || e.message)) }
   }
@@ -115,12 +121,20 @@ export default function GoalsPage(){
         <Button onClick={load}>Refresh</Button>
       </Stack>
 
+      {isTrainer() && !athleteId && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt:2 }}>
+          Select an athlete (type at least 2 letters) to view their goals.
+        </Typography>
+      )}
       <List>
         {goals.map(g => (
           <ListItem key={g.id} button onClick={()=>setSelectedGoal(g)}>
-            <ListItemText primary={g.description} secondary={`From ${g.startDate ? new Date(g.startDate).toLocaleDateString() : ''} to ${g.endDate ? new Date(g.endDate).toLocaleDateString() : ''} — Progress: ${g.currentProgress ?? 0}%`} />
+            <ListItemText primary={g.description} secondary={`From ${formatIsoDate(g.startDate)} to ${formatIsoDate(g.endDate)} — Progress: ${g.currentProgress ?? 0}%`} />
           </ListItem>
         ))}
+        {goals.length === 0 && (!isTrainer() || athleteId) && (
+          <ListItem><ListItemText primary="No goals found for the selected filters" /></ListItem>
+        )}
       </List>
 
       <Dialog open={openCreate} onClose={()=>setOpenCreate(false)}>
@@ -137,8 +151,8 @@ export default function GoalsPage(){
                 {seasons.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
               </Select>
             </FormControl>
-            <TextField type="date" label="Start" value={form.start} onChange={e=>{ setForm({...form, start:e.target.value}); setFormErrors({ ...formErrors, start:'', range:'' }) }} InputLabelProps={{ shrink:true }} error={!!formErrors.start} helperText={formErrors.start || ''} />
-            <TextField type="date" label="End" value={form.end} onChange={e=>{ setForm({...form, end:e.target.value}); setFormErrors({ ...formErrors, end:'', range:'' }) }} InputLabelProps={{ shrink:true }} error={!!formErrors.end} helperText={formErrors.end || ''} />
+            <BelgianDatePicker label="Start" value={belgianToIso(form.start)} onChange={(iso)=>{ const belg = iso ? isoToBelgian(iso) : ''; setForm({...form, start: belg}); setFormErrors({ ...formErrors, start:'', range:'' }) }} />
+            <BelgianDatePicker label="End" value={belgianToIso(form.end)} onChange={(iso)=>{ const belg = iso ? isoToBelgian(iso) : ''; setForm({...form, end: belg}); setFormErrors({ ...formErrors, end:'', range:'' }) }} />
             {formErrors.range && <Typography color="error" variant="body2">{formErrors.range}</Typography>}
             <TextField label="Description" multiline rows={3} value={form.description} onChange={e=>setForm({...form, description:e.target.value})} />
           </Stack>
@@ -155,7 +169,7 @@ export default function GoalsPage(){
           {selectedGoal && (
             <Stack spacing={2}>
               <Typography>{selectedGoal.description}</Typography>
-              <Typography variant="body2">{selectedGoal.startDate ? new Date(selectedGoal.startDate).toLocaleDateString('en-GB') : ''} — {selectedGoal.endDate ? new Date(selectedGoal.endDate).toLocaleDateString('en-GB') : ''}</Typography>
+              <Typography variant="body2">{selectedGoal.startDate ? formatBelgianDate(new Date(selectedGoal.startDate)) : ''} — {selectedGoal.endDate ? formatBelgianDate(new Date(selectedGoal.endDate)) : ''}</Typography>
               <div>
                 <Typography variant="subtitle2">Current progress</Typography>
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -168,7 +182,7 @@ export default function GoalsPage(){
               {(selectedGoal.feedbacks || []).length === 0 ? <Typography variant="body2">None</Typography> : (
                 <List>
                   {(selectedGoal.feedbacks || []).map(f => (
-                    <ListItem key={f.id}><ListItemText primary={f.comment} secondary={`${f.trainer?.firstName || ''} ${f.trainer?.lastName || ''} — ${f.createdAt ? new Date(f.createdAt).toLocaleString() : ''}`} /></ListItem>
+                    <ListItem key={f.id}><ListItemText primary={f.comment} secondary={`${f.trainer?.firstName || ''} ${f.trainer?.lastName || ''} — ${formatIsoDateTime(f.createdAt)}`} /></ListItem>
                   ))}
                 </List>
               )}
@@ -192,7 +206,7 @@ export default function GoalsPage(){
               {(selectedGoal.progress || []).length === 0 ? <Typography variant="body2">No updates yet</Typography> : (
                 <List>
                   {(selectedGoal.progress || []).map(p => (
-                    <ListItem key={p.id}><ListItemText primary={`${p.progress}%`} secondary={`${p.note || ''} ${p.createdAt ? '— ' + new Date(p.createdAt).toLocaleString() : ''}`} /></ListItem>
+                    <ListItem key={p.id}><ListItemText primary={`${p.progress}%`} secondary={`${p.note || ''} ${p.createdAt ? '— ' + formatIsoDateTime(p.createdAt) : ''}`} /></ListItem>
                   ))}
                 </List>
               )}

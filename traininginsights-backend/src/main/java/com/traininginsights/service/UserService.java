@@ -51,6 +51,8 @@ public class UserService {
                 .map(rn -> roleRepo.findByName(rn).orElseThrow())
                 .collect(Collectors.toSet());
         u.setRoles(roleEntities);
+        // new users start inactive until activation mail completion
+        u.setActive(false);
         return userRepo.save(u);
     }
 
@@ -149,4 +151,9 @@ public class UserService {
     }
 
     public void delete(Long id){ userRepo.deleteById(id); }
+
+    public User activateUser(User u){
+        u.setActive(true);
+        return userRepo.save(u);
+    }
 }

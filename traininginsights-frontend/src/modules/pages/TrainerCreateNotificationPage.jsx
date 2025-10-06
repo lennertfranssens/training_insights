@@ -1,16 +1,20 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api/client'
-import { Paper, Typography, Stack, TextField, MenuItem, Button } from '@mui/material'
+import { Paper, Typography, Stack, TextField, MenuItem, Button, Backdrop, CircularProgress, LinearProgress, Alert } from '@mui/material'
+import { useAttachmentManager } from '../notifications/hooks/useAttachmentManager'
+import { useNotificationSend } from '../notifications/hooks/useNotificationSend'
+import AttachmentPicker from '../notifications/components/AttachmentPicker'
 import { useSnackbar } from '../common/SnackbarProvider'
 import { useAuth } from '../auth/AuthContext'
 
 export default function TrainerCreateNotificationPage(){
   const [clubs, setClubs] = useState([])
   const [selectedClubs, setSelectedClubs] = useState([])
-    const [groups, setGroups] = useState([])
-    const [selectedGroups, setSelectedGroups] = useState([])
+  const [groups, setGroups] = useState([])
+  const [selectedGroups, setSelectedGroups] = useState([])
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
+  const [channel, setChannel] = useState('notification') // added channel state
   const { auth } = useAuth()
 
   useEffect(()=>{
@@ -43,27 +47,101 @@ export default function TrainerCreateNotificationPage(){
   }, [clubs])
 
   const { showSnackbar } = useSnackbar()
+  const buildSummaryMessage = (results, mode) => {
+    try {
+      const total = results.length
+      const emailAttempted = results.filter(r=>r.emailAttempted).length
+      const emailSent = results.filter(r=>r.emailSent).length
+      const pushDispatched = results.filter(r=>r.dispatched).length
+      const errors = results.filter(r=>r.error)
+      let msg = `Sent to ${total} user${total!==1?'s':''}`
+      if (mode !== 'notification') {
+        msg += ` | email attempted: ${emailAttempted}`
+        msg += `, email sent: ${emailSent}`
+      }
+      msg += ` | push dispatch: ${pushDispatched}`
+      if (errors.length) msg += ` | errors: ${errors.length}`
+      return msg
+    } catch(e){ return 'Notifications dispatched' }
+  }
+  const [sending, setSending] = useState(false)
+  const [progress, setProgress] = useState({ completed: 0, total: 0 })
+  const cancelDisabled = progress.total > 0 && (progress.completed / progress.total) >= 0.95
+  const [retryContext, setRetryContext] = useState(null)
+  const attachments = useAttachmentManager()
+  const { send: sendNotifications, buildSummary, cancel } = useNotificationSend()
+
+  // attachments managed by hook
   const send = async () => {
     if (!title || !body) return showSnackbar('Provide title and body')
     try{
-      // If user selected groups (non-empty) -> send to groups (but treat -1 NONE as no-groups)
+      setSending(true)
       const realGroups = (selectedGroups || []).filter(g => g !== -1)
-      if (realGroups.length>0) {
-        const { data } = await api.post('/api/notifications/batch/group/send', { ids: realGroups, title, body })
-        showSnackbar('Notifications dispatched')
+      const usingGroups = realGroups.length > 0
+      if (!usingGroups && (!selectedClubs || selectedClubs.length===0)) return showSnackbar('Select at least one club or group')
+      const ids = usingGroups ? realGroups : selectedClubs
+      const mode = usingGroups ? 'groups' : 'clubs'
+      setProgress({ completed: 0, total: ids.length })
+      const { results, error, cancelled, partial, completedTargets, totalTargets, remainingTargets, failedTargets, targetErrors } = await sendNotifications({ mode, ids, title, body, channel, attachments: attachments.files, onProgress: ({ completed, total }) => setProgress({ completed, total }) })
+      if (cancelled) { 
+        if (partial) {
+          showSnackbar(`Send cancelled after ${completedTargets}/${totalTargets} targets`) 
+          setRetryContext({ mode, remainingIds: remainingTargets, failedTargets, targetErrors, lastPayload: { title, body, channel } })
+        } else {
+          showSnackbar('Send cancelled')
+        }
+        return 
+      }
+      if (error){
+        showSnackbar('Send failed: ' + error)
+        if (remainingTargets && remainingTargets.length){
+          setRetryContext({ mode, remainingIds: remainingTargets, failedTargets, targetErrors, lastPayload: { title, body, channel } })
+        }
         return
       }
-      // No groups selected -> send to full club(s)
-      if (!selectedClubs || selectedClubs.length===0) return showSnackbar('Select at least one club or group')
-      const { data } = await api.post('/api/notifications/batch/club/send', { ids: selectedClubs, title, body })
-      showSnackbar('Notifications dispatched')
+      showSnackbar(buildSummary(results, channel))
+      // Clear fields & attachments after success
+      setTitle('')
+      setBody('')
+      attachments.reset()
+      setRetryContext(null)
     }catch(e){ showSnackbar('Send failed: ' + (e.response?.data?.message || e.message || e)) }
+    finally { setSending(false); setProgress({ completed: 0, total: 0 }) }
+  }
+
+  const retryRemaining = async () => {
+    if (!retryContext) return
+    const { mode, remainingIds, lastPayload } = retryContext
+    if (!remainingIds || remainingIds.length === 0) return
+    try {
+      setSending(true)
+      setProgress({ completed: 0, total: remainingIds.length })
+      const { results, error, cancelled, partial, completedTargets, totalTargets, remainingTargets } = await sendNotifications({ mode, ids: remainingIds, title: lastPayload.title, body: lastPayload.body, channel: lastPayload.channel, attachments: attachments.files, onProgress: ({ completed, total }) => setProgress({ completed, total }) })
+      if (cancelled){
+        showSnackbar(partial ? `Retry cancelled after ${completedTargets}/${totalTargets}` : 'Retry cancelled')
+        return
+      }
+      if (error){
+        showSnackbar('Retry failed: ' + error)
+        return
+      }
+      showSnackbar(buildSummary(results, lastPayload.channel))
+      if (!remainingTargets || remainingTargets.length === 0){
+        setRetryContext(null)
+      }
+    } catch(e){ showSnackbar('Retry failed: ' + (e.message || e)) }
+    finally { setSending(false); setProgress({ completed: 0, total: 0 }) }
   }
 
   return (
     <Paper sx={{ p:2 }}>
       <Typography variant="h6" sx={{ mb:2 }}>Create Notification</Typography>
       <Stack spacing={2}>
+        {retryContext && (
+          <Alert severity="warning" action={<Button color="inherit" size="small" onClick={retryRemaining}>Retry Remaining</Button>}>
+            Partial send pending. {retryContext.remainingIds?.length || 0} target(s) remaining. {retryContext.failedTargets?.length ? `${retryContext.failedTargets.length} failed previously.`:''}
+          </Alert>
+        )}
         {/* Clubs: disabled when actual groups selected (groups override clubs) */}
         <TextField
           select
@@ -83,14 +161,11 @@ export default function TrainerCreateNotificationPage(){
           SelectProps={{ multiple: true, value: selectedGroups }}
           value={selectedGroups}
           onChange={e=>{
-            // Normalize values to numbers (MUI may return strings)
             const raw = Array.isArray(e.target.value) ? e.target.value : [e.target.value]
             const v = raw.map(x => Number(x))
-            // If NONE (-1) is selected, make it exclusive
             if (v.includes(-1)) {
               setSelectedGroups([-1])
             } else {
-              // remove any -1 if present
               setSelectedGroups(v.filter(x => x !== -1))
             }
           }}
@@ -103,10 +178,37 @@ export default function TrainerCreateNotificationPage(){
 
         <TextField label="Title" value={title} onChange={e=>setTitle(e.target.value)} />
         <TextField label="Body" value={body} onChange={e=>setBody(e.target.value)} multiline minRows={3} />
+        <TextField select label="Channel" value={channel} onChange={e=>setChannel(e.target.value)} helperText="Choose delivery channel">
+          <MenuItem value="notification">In-app only</MenuItem>
+          <MenuItem value="email">Email only</MenuItem>
+          <MenuItem value="both">In-app + Email</MenuItem>
+        </TextField>
+        <AttachmentPicker
+          files={attachments.files}
+          errors={attachments.errors}
+          maxMb={attachments.maxMb}
+          percent={attachments.percent}
+          totalBytes={attachments.totalBytes}
+          onAdd={attachments.addFiles}
+          onRemove={attachments.removeFile}
+          disabled={sending}
+        />
         <div>
-          <Button variant="contained" onClick={send}>Send</Button>
+          <Button variant="contained" onClick={send} disabled={sending}>Send</Button>
         </div>
       </Stack>
+      <Backdrop open={sending} sx={{ color:'#fff', zIndex:(theme)=>theme.zIndex.modal + 1 }}>
+        <Stack alignItems="center" spacing={2} sx={{ minWidth: 240 }}>
+          <CircularProgress color="inherit" size={48} />
+          {progress.total > 0 && (
+            <LinearProgress variant="determinate" value={Math.min(100, (progress.completed / progress.total) * 100)} sx={{ width: '100%' }} />
+          )}
+          <Typography variant="caption">
+            {progress.total > 0 ? `Sending... (${progress.completed} / ${progress.total})` : 'Sending...'}
+          </Typography>
+          <Button size="small" variant="outlined" color="inherit" onClick={cancel} disabled={cancelDisabled}>Cancel</Button>
+        </Stack>
+      </Backdrop>
     </Paper>
   )
 }

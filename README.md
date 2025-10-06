@@ -113,6 +113,43 @@ Key environment variables (can be set in Docker Compose):
 - `TI_JWT_SECRET` — application JWT secret
 - `VAPID_PUBLIC`, `VAPID_PRIVATE` — VAPID keys for Web Push notifications
 
+### Account lifecycle (activation & password reset)
+
+User accounts are created internally by administrators/trainers (public self‑signup is intentionally disabled to reduce abuse). New users receive an activation email containing a time‑limited token (24h). The activation flow lets the user set their initial password. Forgotten passwords use a similar tokenized reset flow (also 24h validity).
+
+High level endpoints (paths may evolve; check OpenAPI/Swagger for latest):
+
+- Request activation email (admin action or automatic on user creation)
+- Activate account: `POST /api/auth/activate` with JSON `{ "token": "<activationToken>", "password": "<NewPassword>" }`
+- Request password reset: `POST /api/auth/password-reset/request` with `{ "email": "user@example.com" }` (always returns 200 to avoid user enumeration)
+- Perform password reset: `POST /api/auth/password-reset/confirm` with `{ "token": "<resetToken>", "password": "<NewPassword>" }`
+
+Implementation notes:
+- Tokens are single‑use and expire after 24 hours.
+- Expired or invalid tokens return 400/404 style errors; clients should show a generic failure message.
+- Activation must be completed before a user can authenticate with JWT.
+
+### Notifications: in‑app, email (BCC) & summaries
+
+Notifications can now be delivered via:
+
+- In‑app only (stored notification + optional web push)
+- Email only (no stored notification/push) — useful for purely informational broadcasts
+- Both (persisted notification + email)
+
+When sending to a club or group and choosing a mode that includes email, the system sends a single outbound email using BCC for all recipients (privacy + performance). If SMTP settings are configured on the target club (or any club linked to the group), the sender (if they have an email) also receives a summary email containing:
+
+- Channel used
+- Title and truncated body
+- Total number of recipients
+- Count of email addresses included
+- Count of push deliveries attempted/succeeded
+- A (possibly truncated) list of recipient email addresses
+
+Frontend UI (Create Notification page) exposes a Channel selector with options: In‑app only, Email only, In‑app + Email.
+
+SMTP configuration per club controls email availability; if not configured, email delivery is silently skipped and only in‑app notifications (and push) occur.
+
 ## Attachments and uploads
 
 Attachments uploaded for trainings are stored under the configured uploads directory: `uploads/<trainingId>/filename` by default. When running in Docker make sure this path is persisted via a volume, otherwise uploaded files will be lost when containers are recreated.
@@ -221,6 +258,62 @@ Notes:
 ## Backup and restore (superadmin)
 
 The app provides data-only JSON backups as well as full backups that include attachment files. These actions require the `ROLE_SUPERADMIN` role.
+
+## Metrics dashboard
+
+Superadmins and admins land on a role‑aware metrics dashboard that summarizes key operational statistics:
+
+- Total clubs (global or limited to the admin's clubs / selected club)
+- Total users and inactive (non‑activated) users
+- Emails sent (counts individual recipients, including BCC recipients)
+- Password resets performed
+- Biggest club (by distinct users) — superadmin only (global scope)
+- Users per club table (sorted descending by user count)
+
+Endpoint:
+`GET /api/metrics/dashboard?clubId=<optional>`
+
+Authorization:
+- `ROLE_SUPERADMIN` — global metrics (ignores `clubId`)
+- `ROLE_ADMIN` — metrics restricted to the admin's clubs; optional `clubId` narrows scope.
+
+Response shape (example):
+```json
+{
+  "totalClubs": 3,
+  "totalUsers": 128,
+  "inactiveUsers": 5,
+  "totalEmailsSent": 420,
+  "totalPasswordResets": 12,
+  "biggestClub": { "id": 7, "name": "Brussels Endurance", "userCount": 56 },
+  "usersPerClub": [
+    { "id": 7, "name": "Brussels Endurance", "userCount": 56 },
+    { "id": 3, "name": "Gent Track", "userCount": 44 },
+    { "id": 9, "name": "Leuven Juniors", "userCount": 28 }
+  ]
+}
+```
+
+Front end component: `src/modules/dashboards/MetricsDashboard.jsx`.
+
+Admin club preference persistence: the last selected club filter is stored in `localStorage` under `ti_metrics_club`.
+
+## Date & time formatting (Belgian standard)
+
+All displayed dates are normalized to Belgian style `dd/MM/yyyy` and 24‑hour time. Utility helpers live in `traininginsights-frontend/src/modules/common/dateUtils.js` (formatters `formatIsoDate` and `formatIsoDateTime`). Custom picker components are provided in `BelgianPickers.jsx` and used across forms (users, goals, trainings, questionnaires).
+
+## Theme (Light / Dark / System)
+
+The frontend supports a tri-mode theme selector (System, Light, Dark). The current mode is stored in `localStorage` under `ti_theme_mode` and defaults to `system`, following the OS/browser `prefers-color-scheme` setting. A listener updates automatically if the OS preference changes while in system mode.
+
+Access: click the avatar in the top right and use the "Theme:" menu item to cycle modes.
+
+Implementation:
+`ThemeContext.jsx` provides `ThemeModeProvider` which wraps the app in a dynamic MUI theme. State keys:
+- `mode`: `system | light | dark`
+- `resolvedMode`: actual applied palette mode when `mode=system`.
+
+
 
 ### Export (download)
 
@@ -455,27 +548,3 @@ Key rules
 Frontend navigation (selected)
 - Admins: Clubs, Admins, Trainers, Athletes, Club Members, Push Config, SMTP, Seasons, Notifications, Create Notification, Groups.
 - Trainers: Groups, Athletes, Trainings, Questionnaires, Goals, Analytics, Notifications, Create Notification.
-
-## Public signup and clubs
-
-Athlete signup is open via `POST /api/auth/signup` and now supports an optional `clubId` so a new athlete can immediately join a club.
-
-Discoverable clubs (minimal fields) are exposed at:
-
-`GET /api/public/clubs` → `[ { "id": 1, "name": "Example Club" }, ... ]`
-
-Signup request example including a club:
-
-```json
-{
-  "firstName": "Jane",
-  "lastName": "Doe",
-  "email": "jane@example.com",
-  "password": "Secret123!",
-  "athleteCategory": "SENIOR",
-  "birthDate": "1990-05-20",
-  "clubId": 3
-}
-```
-
-If `clubId` is omitted or empty, the user is created without club membership. Invalid `clubId` values return HTTP 400.

@@ -30,6 +30,8 @@ services:
       DB_PASS: postgres
       TI_JWT_SECRET: change-me-in-prod
       SPRING_PROFILES_ACTIVE: docker
+      APP_ATTACHMENTS_MAX_MB: 25
+    APP_PUBLIC_ENV: local
     ports:
       - "8080:8080"
 

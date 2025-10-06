@@ -36,7 +36,8 @@ public class User {
     // daily reminder time for questionnaire (HH:mm) - optional
     private String dailyReminderTime;
 
-    private boolean isActive = true;
+    // When using account activation, new users may start inactive until they activate via email link
+    private boolean isActive = false;
     // If true, admin/trainer has manually overridden active status; when set, automatic toggles won't change active
     private Boolean activeOverride = null;
 

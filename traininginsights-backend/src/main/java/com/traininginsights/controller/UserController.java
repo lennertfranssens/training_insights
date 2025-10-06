@@ -41,12 +41,14 @@ public class UserController {
                     boolean sharesClub = u.getClubs().stream().anyMatch(cl-> callerClubIds.contains(cl.getId()));
                     return sharesClub || (u.getGroupEntity() != null && u.getGroupEntity().getTrainers().stream().anyMatch(t-> t.getId().equals(caller.getId())));
                 }
-                // trainers: only athletes they train or share a club with
-                boolean targetIsAthlete = u.getRoles().stream().anyMatch(r-> r.getName().name().equals("ROLE_ATHLETE"));
-                if (!targetIsAthlete) return false;
+                // trainers: need to see athletes they train or share club with AND other trainers in same clubs (for group assignment)
                 boolean sharesClub = u.getClubs().stream().anyMatch(cl-> callerClubIds.contains(cl.getId()));
+                boolean isAthlete = u.getRoles().stream().anyMatch(r-> r.getName().name().equals("ROLE_ATHLETE"));
+                boolean isTrainerRole = u.getRoles().stream().anyMatch(r-> r.getName().name().equals("ROLE_TRAINER"));
                 boolean trainerOfGroup = u.getGroupEntity() != null && u.getGroupEntity().getTrainers().stream().anyMatch(t-> t.getId().equals(caller.getId()));
-                return sharesClub || trainerOfGroup;
+                if (isAthlete) return sharesClub || trainerOfGroup; // existing athlete visibility rule
+                if (isTrainerRole) return sharesClub; // allow seeing peer trainers in shared clubs
+                return false; // trainers cannot see admins or others
             })
             .map(this::toDTO)
             .collect(Collectors.toList());

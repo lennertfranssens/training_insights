@@ -30,11 +30,22 @@ public class AdminBackupService {
     private final TrainingRepository trainingRepository;
     private final QuestionnaireResponseRepository questionnaireResponseRepository;
     private final AttachmentRepository attachmentRepository;
+    private final GoalRepository goalRepository;
+    private final GoalProgressRepository goalProgressRepository;
+    private final GoalFeedbackRepository goalFeedbackRepository;
+    private final TrainingAttendanceRepository trainingAttendanceRepository;
+    private final TrainingSeriesRepository trainingSeriesRepository;
+    private final PushSubscriptionRepository pushSubscriptionRepository;
+    private final PushConfigRepository pushConfigRepository;
+    private final EmailLogRepository emailLogRepository;
+    private final SentNotificationRepository sentNotificationRepository;
+    private final UserTokenRepository userTokenRepository;
+    private final PasswordResetLogRepository passwordResetLogRepository;
     private final String uploadsDir;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public AdminBackupService(RoleRepository roleRepository, ClubRepository clubRepository, GroupRepository groupRepository, SeasonRepository seasonRepository, UserRepository userRepository, MembershipRepository membershipRepository, NotificationRepository notificationRepository, QuestionnaireRepository questionnaireRepository, TrainingRepository trainingRepository, QuestionnaireResponseRepository questionnaireResponseRepository, AttachmentRepository attachmentRepository, @org.springframework.beans.factory.annotation.Value("${app.uploadsDir:uploads}") String uploadsDir){
-        this.roleRepository = roleRepository; this.clubRepository = clubRepository; this.groupRepository = groupRepository; this.seasonRepository = seasonRepository; this.userRepository = userRepository; this.membershipRepository = membershipRepository; this.notificationRepository = notificationRepository; this.questionnaireRepository = questionnaireRepository; this.trainingRepository = trainingRepository; this.questionnaireResponseRepository = questionnaireResponseRepository; this.attachmentRepository = attachmentRepository; this.uploadsDir = uploadsDir;
+    public AdminBackupService(RoleRepository roleRepository, ClubRepository clubRepository, GroupRepository groupRepository, SeasonRepository seasonRepository, UserRepository userRepository, MembershipRepository membershipRepository, NotificationRepository notificationRepository, QuestionnaireRepository questionnaireRepository, TrainingRepository trainingRepository, QuestionnaireResponseRepository questionnaireResponseRepository, AttachmentRepository attachmentRepository, GoalRepository goalRepository, GoalProgressRepository goalProgressRepository, GoalFeedbackRepository goalFeedbackRepository, TrainingAttendanceRepository trainingAttendanceRepository, TrainingSeriesRepository trainingSeriesRepository, PushSubscriptionRepository pushSubscriptionRepository, PushConfigRepository pushConfigRepository, EmailLogRepository emailLogRepository, SentNotificationRepository sentNotificationRepository, UserTokenRepository userTokenRepository, PasswordResetLogRepository passwordResetLogRepository, @org.springframework.beans.factory.annotation.Value("${app.uploadsDir:uploads}") String uploadsDir){
+        this.roleRepository = roleRepository; this.clubRepository = clubRepository; this.groupRepository = groupRepository; this.seasonRepository = seasonRepository; this.userRepository = userRepository; this.membershipRepository = membershipRepository; this.notificationRepository = notificationRepository; this.questionnaireRepository = questionnaireRepository; this.trainingRepository = trainingRepository; this.questionnaireResponseRepository = questionnaireResponseRepository; this.attachmentRepository = attachmentRepository; this.goalRepository = goalRepository; this.goalProgressRepository = goalProgressRepository; this.goalFeedbackRepository = goalFeedbackRepository; this.trainingAttendanceRepository = trainingAttendanceRepository; this.trainingSeriesRepository = trainingSeriesRepository; this.pushSubscriptionRepository = pushSubscriptionRepository; this.pushConfigRepository = pushConfigRepository; this.emailLogRepository = emailLogRepository; this.sentNotificationRepository = sentNotificationRepository; this.userTokenRepository = userTokenRepository; this.passwordResetLogRepository = passwordResetLogRepository; this.uploadsDir = uploadsDir;
     }
 
     public byte[] exportAll(){
@@ -72,6 +83,62 @@ public class AdminBackupService {
             // Questionnaire responses
             pkg.questionnaireResponses = new ArrayList<>();
             for (QuestionnaireResponse qr : questionnaireResponseRepository.findAll()){ BackupDtos.QuestionnaireResponseExport qre = new BackupDtos.QuestionnaireResponseExport(); qre.id = qr.getId(); qre.userId = qr.getUser()!=null? qr.getUser().getId() : null; qre.trainingId = qr.getTraining()!=null? qr.getTraining().getId() : null; qre.questionnaireId = qr.getQuestionnaire()!=null? qr.getQuestionnaire().getId() : null; qre.submittedAt = qr.getSubmittedAt(); qre.responses = qr.getResponses(); pkg.questionnaireResponses.add(qre); }
+
+            // Goals & related
+            pkg.goals = new ArrayList<>();
+            for (Goal g : goalRepository.findAll()){ BackupDtos.GoalExport ge = new BackupDtos.GoalExport(); ge.id = g.getId(); ge.userId = g.getUser()!=null? g.getUser().getId() : null; ge.seasonId = g.getSeason()!=null? g.getSeason().getId() : null; ge.startDate = g.getStartDate(); ge.endDate = g.getEndDate(); ge.description = g.getDescription(); ge.currentProgress = g.getCurrentProgress(); ge.cumulativeProgress = g.getCumulativeProgress(); ge.completionDate = g.getCompletionDate(); pkg.goals.add(ge); }
+            pkg.goalProgresses = new ArrayList<>();
+            for (GoalProgress gp : goalProgressRepository.findAll()){ BackupDtos.GoalProgressExport gpe = new BackupDtos.GoalProgressExport(); gpe.id = gp.getId(); gpe.goalId = gp.getGoal()!=null? gp.getGoal().getId() : null; gpe.progress = gp.getProgress(); gpe.note = gp.getNote(); gpe.createdAt = gp.getCreatedAt(); pkg.goalProgresses.add(gpe); }
+            pkg.goalFeedbacks = new ArrayList<>();
+            for (GoalFeedback gf : goalFeedbackRepository.findAll()){ BackupDtos.GoalFeedbackExport gfe = new BackupDtos.GoalFeedbackExport(); gfe.id = gf.getId(); gfe.goalId = gf.getGoal()!=null? gf.getGoal().getId() : null; gfe.trainerId = gf.getTrainer()!=null? gf.getTrainer().getId() : null; gfe.comment = gf.getComment(); gfe.createdAt = gf.getCreatedAt(); pkg.goalFeedbacks.add(gfe); }
+
+            // Training attendance
+            pkg.trainingAttendances = new ArrayList<>();
+            for (TrainingAttendance ta : trainingAttendanceRepository.findAll()){ BackupDtos.TrainingAttendanceExport tae = new BackupDtos.TrainingAttendanceExport(); tae.id = ta.getId(); tae.trainingId = ta.getTraining()!=null? ta.getTraining().getId() : null; tae.userId = ta.getUser()!=null? ta.getUser().getId() : null; tae.present = ta.isPresent(); tae.updatedAt = ta.getUpdatedAt(); pkg.trainingAttendances.add(tae); }
+
+            // Training series
+            pkg.trainingSeries = new ArrayList<>();
+            for (TrainingSeries ts : trainingSeriesRepository.findAll()){ BackupDtos.TrainingSeriesExport tse = new BackupDtos.TrainingSeriesExport(); tse.id = ts.getId(); tse.rrule = ts.getRrule(); tse.timezone = ts.getTimezone(); tse.startTime = ts.getStartTime(); tse.endTime = ts.getEndTime(); tse.until = ts.getUntil(); tse.count = ts.getCount(); tse.createdAt = ts.getCreatedAt(); tse.updatedAt = ts.getUpdatedAt(); pkg.trainingSeries.add(tse); }
+
+            // Push subscriptions & config
+            pkg.pushSubscriptions = new ArrayList<>();
+            for (PushSubscription ps : pushSubscriptionRepository.findAll()){ BackupDtos.PushSubscriptionExport pse = new BackupDtos.PushSubscriptionExport(); pse.id = ps.getId(); pse.userId = ps.getUser()!=null? ps.getUser().getId() : null; pse.endpoint = ps.getEndpoint(); pse.keys = ps.getKeys(); pkg.pushSubscriptions.add(pse); }
+            pkg.pushConfigs = new ArrayList<>();
+            for (PushConfig pc : pushConfigRepository.findAll()){ BackupDtos.PushConfigExport pce = new BackupDtos.PushConfigExport(); pce.id = pc.getId(); pce.vapidPublic = pc.getVapidPublic(); pce.vapidPrivate = pc.getVapidPrivate(); pce.subject = pc.getSubject(); pkg.pushConfigs.add(pce); }
+
+            // Email logs
+            pkg.emailLogs = new ArrayList<>();
+            for (EmailLog el : emailLogRepository.findAll()){ BackupDtos.EmailLogExport ele = new BackupDtos.EmailLogExport(); ele.id = el.getId(); ele.sentAt = el.getSentAt(); ele.toAddress = el.getToAddress(); ele.subject = el.getSubject(); ele.clubId = el.getClubId(); pkg.emailLogs.add(ele); }
+
+            // Sent notifications
+            pkg.sentNotifications = new ArrayList<>();
+            for (SentNotification sn : sentNotificationRepository.findAll()){ BackupDtos.SentNotificationExport sne = new BackupDtos.SentNotificationExport(); sne.id = sn.getId(); sne.trainingId = sn.getTrainingId(); sne.type = sn.getType(); sne.sentAt = sn.getSentAt(); pkg.sentNotifications.add(sne); }
+
+            // User tokens & password reset logs
+            pkg.userTokens = new ArrayList<>();
+            for (UserToken ut : userTokenRepository.findAll()){ BackupDtos.UserTokenExport ute = new BackupDtos.UserTokenExport(); ute.id = ut.getId(); ute.userId = ut.getUser()!=null? ut.getUser().getId() : null; ute.token = ut.getToken(); ute.type = ut.getType()!=null? ut.getType().name() : null; ute.expiresAt = ut.getExpiresAt(); ute.used = ut.isUsed(); ute.createdAt = ut.getCreatedAt(); pkg.userTokens.add(ute); }
+            pkg.passwordResetLogs = new ArrayList<>();
+            for (PasswordResetLog pr : passwordResetLogRepository.findAll()){ BackupDtos.PasswordResetLogExport pre = new BackupDtos.PasswordResetLogExport(); pre.id = pr.getId(); pre.resetAt = pr.getResetAt(); pre.userId = pr.getUserId(); pkg.passwordResetLogs.add(pre); }
+
+            // Attachments metadata (stored files handled in ZIP export; here we include relative path for completeness)
+            pkg.attachments = new ArrayList<>();
+            Path base = Paths.get(uploadsDir).toAbsolutePath().normalize();
+            for (Attachment a : attachmentRepository.findAll()){
+                BackupDtos.AttachmentExport ae = new BackupDtos.AttachmentExport();
+                ae.id = a.getId();
+                ae.trainingId = a.getTraining()!=null? a.getTraining().getId() : null;
+                ae.filename = a.getFilename();
+                ae.contentType = a.getContentType();
+                try{
+                    if (a.getPath()!=null){
+                        Path p = Paths.get(a.getPath()).toAbsolutePath().normalize();
+                        if (p.startsWith(base)){
+                            ae.relativePath = base.relativize(p).toString().replace('\\','/');
+                        }
+                    }
+                }catch(Exception ignored){}
+                pkg.attachments.add(ae);
+            }
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             mapper.writeValue(out, pkg);
@@ -185,7 +252,135 @@ public class AdminBackupService {
             }
 
             // Questionnaire responses
-            for (BackupDtos.QuestionnaireResponseExport qre : pkg.questionnaireResponses){ try{ QuestionnaireResponse qr = qre.id!=null? questionnaireResponseRepository.findById(qre.id).orElse(new QuestionnaireResponse()) : new QuestionnaireResponse(); if (qre.userId!=null) qr.setUser(userMap.get(qre.userId)); if (qre.trainingId!=null) qr.setTraining(trainingMap.get(qre.trainingId)); if (qre.questionnaireId!=null) qr.setQuestionnaire(questionnaireMap.get(qre.questionnaireId)); qr.setSubmittedAt(qre.submittedAt); qr.setResponses(qre.responses); questionnaireResponseRepository.save(qr); }catch(Exception ex){} }
+            if (pkg.questionnaireResponses != null){
+                for (BackupDtos.QuestionnaireResponseExport qre : pkg.questionnaireResponses){
+                    try{
+                        QuestionnaireResponse qr = qre.id!=null? questionnaireResponseRepository.findById(qre.id).orElse(new QuestionnaireResponse()) : new QuestionnaireResponse();
+                        if (qre.userId!=null) qr.setUser(userMap.get(qre.userId));
+                        if (qre.trainingId!=null) qr.setTraining(trainingMap.get(qre.trainingId));
+                        if (qre.questionnaireId!=null) qr.setQuestionnaire(questionnaireMap.get(qre.questionnaireId));
+                        qr.setSubmittedAt(qre.submittedAt);
+                        qr.setResponses(qre.responses);
+                        questionnaireResponseRepository.save(qr);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // Goals
+            Map<Long, Goal> goalMap = new HashMap<>();
+            if (pkg.goals != null){
+                for (BackupDtos.GoalExport ge : pkg.goals){
+                    try{
+                        Goal g = ge.id!=null? goalRepository.findById(ge.id).orElse(new Goal()) : new Goal();
+                        if (ge.userId!=null) g.setUser(userMap.get(ge.userId));
+                        if (ge.seasonId!=null) g.setSeason(seasonMap.get(ge.seasonId));
+                        g.setStartDate(ge.startDate); g.setEndDate(ge.endDate); g.setDescription(ge.description);
+                        g.setCurrentProgress(ge.currentProgress); g.setCumulativeProgress(ge.cumulativeProgress); g.setCompletionDate(ge.completionDate);
+                        goalRepository.save(g);
+                        goalMap.put(g.getId(), g);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // Goal progress
+            if (pkg.goalProgresses != null){
+                for (BackupDtos.GoalProgressExport gpe : pkg.goalProgresses){
+                    try{
+                        GoalProgress gp = gpe.id!=null? goalProgressRepository.findById(gpe.id).orElse(new GoalProgress()) : new GoalProgress();
+                        if (gpe.goalId!=null) gp.setGoal(goalMap.get(gpe.goalId));
+                        gp.setProgress(gpe.progress); gp.setNote(gpe.note); gp.setCreatedAt(gpe.createdAt);
+                        goalProgressRepository.save(gp);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // Goal feedbacks
+            if (pkg.goalFeedbacks != null){
+                for (BackupDtos.GoalFeedbackExport gfe : pkg.goalFeedbacks){
+                    try{
+                        GoalFeedback gf = gfe.id!=null? goalFeedbackRepository.findById(gfe.id).orElse(new GoalFeedback()) : new GoalFeedback();
+                        if (gfe.goalId!=null) gf.setGoal(goalMap.get(gfe.goalId));
+                        if (gfe.trainerId!=null) gf.setTrainer(userMap.get(gfe.trainerId));
+                        gf.setComment(gfe.comment); gf.setCreatedAt(gfe.createdAt);
+                        goalFeedbackRepository.save(gf);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // Training series
+            Map<Long, TrainingSeries> trainingSeriesMap = new HashMap<>();
+            if (pkg.trainingSeries != null){
+                for (BackupDtos.TrainingSeriesExport tse : pkg.trainingSeries){
+                    try{
+                        TrainingSeries ts = tse.id!=null? trainingSeriesRepository.findById(tse.id).orElse(new TrainingSeries()) : new TrainingSeries();
+                        ts.setRrule(tse.rrule); ts.setTimezone(tse.timezone); ts.setStartTime(tse.startTime); ts.setEndTime(tse.endTime); ts.setUntil(tse.until); ts.setCount(tse.count);
+                        trainingSeriesRepository.save(ts);
+                        trainingSeriesMap.put(ts.getId(), ts);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // Training attendance
+            if (pkg.trainingAttendances != null){
+                for (BackupDtos.TrainingAttendanceExport tae : pkg.trainingAttendances){
+                    try{
+                        TrainingAttendance ta = tae.id!=null? trainingAttendanceRepository.findById(tae.id).orElse(new TrainingAttendance()) : new TrainingAttendance();
+                        if (tae.trainingId!=null) ta.setTraining(trainingMap.get(tae.trainingId));
+                        if (tae.userId!=null) ta.setUser(userMap.get(tae.userId));
+                        ta.setPresent(tae.present); ta.setUpdatedAt(tae.updatedAt);
+                        trainingAttendanceRepository.save(ta);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // Push subscriptions
+            if (pkg.pushSubscriptions != null){
+                for (BackupDtos.PushSubscriptionExport pse : pkg.pushSubscriptions){
+                    try{
+                        PushSubscription ps = pse.id!=null? pushSubscriptionRepository.findById(pse.id).orElse(new PushSubscription()) : new PushSubscription();
+                        if (pse.userId!=null) ps.setUser(userMap.get(pse.userId));
+                        ps.setEndpoint(pse.endpoint); ps.setKeys(pse.keys);
+                        pushSubscriptionRepository.save(ps);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // Push configs
+            if (pkg.pushConfigs != null){
+                for (BackupDtos.PushConfigExport pce : pkg.pushConfigs){
+                    try{
+                        PushConfig pc = pce.id!=null? pushConfigRepository.findById(pce.id).orElse(new PushConfig()) : new PushConfig();
+                        pc.setVapidPublic(pce.vapidPublic); pc.setVapidPrivate(pce.vapidPrivate); pc.setSubject(pce.subject);
+                        pushConfigRepository.save(pc);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // Sent notifications
+            if (pkg.sentNotifications != null){
+                for (BackupDtos.SentNotificationExport sne : pkg.sentNotifications){
+                    try{
+                        SentNotification sn = sne.id!=null? sentNotificationRepository.findById(sne.id).orElse(new SentNotification()) : new SentNotification();
+                        sn.setTrainingId(sne.trainingId); sn.setType(sne.type); sn.setSentAt(sne.sentAt);
+                        sentNotificationRepository.save(sn);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // User tokens
+            if (pkg.userTokens != null){
+                for (BackupDtos.UserTokenExport ute : pkg.userTokens){
+                    try{
+                        UserToken ut = ute.id!=null? userTokenRepository.findById(ute.id).orElse(new UserToken()) : new UserToken();
+                        if (ute.userId!=null) ut.setUser(userMap.get(ute.userId));
+                        ut.setToken(ute.token); if (ute.type!=null){ try{ ut.setType(TokenType.valueOf(ute.type)); }catch(Exception ignored){} }
+                        ut.setExpiresAt(ute.expiresAt); ut.setUsed(ute.used); ut.setCreatedAt(ute.createdAt);
+                        userTokenRepository.save(ut);
+                    }catch(Exception ex){}
+                }
+            }
+
+            // (PasswordResetLogs intentionally skipped due to lack of setters for full reconstruction)
 
             // Memberships
             for (BackupDtos.MembershipExport me : pkg.memberships){ try{ Membership m = me.id!=null? membershipRepository.findById(me.id).orElse(new Membership()) : new Membership(); m.setUser(userMap.get(me.userId)); m.setClub(clubMap.get(me.clubId)); if (me.seasonId!=null) m.setSeason(seasonMap.get(me.seasonId)); membershipRepository.save(m);}catch(Exception ex){} }
@@ -193,7 +388,35 @@ public class AdminBackupService {
             // Notifications
             for (BackupDtos.NotificationExport ne : pkg.notifications){ try{ Notification n = ne.id!=null? notificationRepository.findById(ne.id).orElse(new Notification()) : new Notification(); n.setSender(ne.senderId!=null? userMap.get(ne.senderId) : null); n.setRecipient(ne.recipientId!=null? userMap.get(ne.recipientId) : null); n.setClub(ne.clubId!=null? clubMap.get(ne.clubId) : null); n.setGroup(ne.groupId!=null? groupRepository.findById(ne.groupId).orElse(null) : null); n.setTitle(ne.title); n.setBody(ne.body); n.setRead(ne.isRead); n.setDispatched(ne.dispatched); n.setSentAt(ne.sentAt); notificationRepository.save(n);}catch(Exception ex){} }
 
-            result.put("clubs", clubMap.size()); result.put("users", userMap.size()); result.put("memberships", pkg.memberships!=null?pkg.memberships.size():0); result.put("notifications", pkg.notifications!=null?pkg.notifications.size():0);
+            // Attachments (metadata only here; actual file bytes restored only in ZIP import)
+            if (pkg.attachments != null){
+                Path base = Paths.get(uploadsDir).toAbsolutePath().normalize();
+                try { Files.createDirectories(base); } catch(Exception ignored){}
+                for (BackupDtos.AttachmentExport ae : pkg.attachments){
+                    try{
+                        Attachment a = ae.id!=null? attachmentRepository.findById(ae.id).orElse(new Attachment()) : new Attachment();
+                        if (ae.trainingId!=null) trainingRepository.findById(ae.trainingId).ifPresent(a::setTraining);
+                        a.setFilename(ae.filename);
+                        a.setContentType(ae.contentType);
+                        if (ae.relativePath != null){
+                            Path resolved = base.resolve(ae.relativePath).normalize();
+                            if (resolved.startsWith(base)) a.setPath(resolved.toString());
+                        }
+                        attachmentRepository.save(a);
+                    }catch(Exception ignored){}
+                }
+            }
+
+            result.put("clubs", clubMap.size());
+            result.put("users", userMap.size());
+            result.put("goals", pkg.goals!=null?pkg.goals.size():0);
+            result.put("goalProgresses", pkg.goalProgresses!=null?pkg.goalProgresses.size():0);
+            result.put("goalFeedbacks", pkg.goalFeedbacks!=null?pkg.goalFeedbacks.size():0);
+            result.put("trainingSeries", pkg.trainingSeries!=null?pkg.trainingSeries.size():0);
+            result.put("trainingAttendances", pkg.trainingAttendances!=null?pkg.trainingAttendances.size():0);
+            result.put("memberships", pkg.memberships!=null?pkg.memberships.size():0);
+            result.put("notifications", pkg.notifications!=null?pkg.notifications.size():0);
+            result.put("attachments", pkg.attachments!=null?pkg.attachments.size():0);
             return result;
         }catch(Exception e){ throw new RuntimeException(e); }
     }

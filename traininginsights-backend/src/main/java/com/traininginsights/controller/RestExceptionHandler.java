@@ -7,6 +7,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import jakarta.validation.ConstraintViolationException;
+import com.traininginsights.exception.ResourceConflictException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -36,6 +39,42 @@ public class RestExceptionHandler {
         body.put("status", HttpStatus.BAD_REQUEST.value());
         body.put("error", HttpStatus.BAD_REQUEST.getReasonPhrase());
         body.put("message", ex.getMessage());
+        return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(ResourceConflictException.class)
+    public ResponseEntity<Map<String,Object>> handleConflict(ResourceConflictException ex){
+        Map<String,Object> body = new HashMap<>();
+        body.put("status", HttpStatus.CONFLICT.value());
+        body.put("error", HttpStatus.CONFLICT.getReasonPhrase());
+        body.put("message", ex.getMessage());
+        return new ResponseEntity<>(body, HttpStatus.CONFLICT);
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String,Object>> handleValidation(MethodArgumentNotValidException ex){
+        Map<String,Object> body = new HashMap<>();
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("error", HttpStatus.BAD_REQUEST.getReasonPhrase());
+        java.util.List<Map<String,String>> errors = ex.getBindingResult().getFieldErrors().stream()
+                .map(fe -> {
+                    Map<String,String> m = new HashMap<>();
+                    m.put("field", fe.getField());
+                    m.put("message", fe.getDefaultMessage());
+                    return m; })
+                .toList();
+        body.put("message", "Validation failed");
+        body.put("errors", errors);
+        return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<Map<String,Object>> handleConstraintViolation(ConstraintViolationException ex){
+        Map<String,Object> body = new HashMap<>();
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("error", HttpStatus.BAD_REQUEST.getReasonPhrase());
+        body.put("message", "Constraint violation");
+        body.put("violations", ex.getConstraintViolations().stream().map(v -> v.getPropertyPath()+": "+v.getMessage()).toList());
         return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
     }
 

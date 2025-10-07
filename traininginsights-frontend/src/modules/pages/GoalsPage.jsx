@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { Paper, Typography, Stack, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, Divider, LinearProgress, MenuItem, Select, FormControl, InputLabel, Autocomplete } from '@mui/material'
+import { Paper, Typography, Stack, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, Divider, LinearProgress, MenuItem, Select, FormControl, InputLabel, Autocomplete, Alert, Chip } from '@mui/material'
 import { formatBelgianDate, belgianToIso, isoToBelgian, formatIsoDate, formatIsoDateTime } from '../common/dateUtils'
-import { BelgianDatePicker } from '../common/BelgianPickers'
+import { TIDateInput } from '../common/TIPickers'
 import { useSnackbar } from '../common/SnackbarProvider'
 
 export default function GoalsPage(){
@@ -18,6 +18,7 @@ export default function GoalsPage(){
   const [form, setForm] = useState({ start:'', end:'', description:'' })
   const [formErrors, setFormErrors] = useState({ start:'', end:'', range:'' })
   const [selectedGoal, setSelectedGoal] = useState(null)
+  const [showCompleted, setShowCompleted] = useState(true)
   const [feedback, setFeedback] = useState('')
   const [progressForm, setProgressForm] = useState({ progress: '', note: '' })
   const { showSnackbar } = useSnackbar()
@@ -85,11 +86,23 @@ export default function GoalsPage(){
   const submitProgress = async () => {
     if (!selectedGoal) return
     const val = parseInt(progressForm.progress, 10)
-    if (isNaN(val) || val < 0 || val > 100) { showSnackbar('Progress must be between 0 and 100'); return }
+    if (isNaN(val) || val < 0) { showSnackbar('Increment must be >= 0'); return }
+    const remaining = Math.max(0, 100 - (selectedGoal.cumulativeProgress ?? 0))
+    if (remaining <= 0) { showSnackbar('Goal already complete'); return }
+    const trimmed = Math.min(val, remaining)
     try {
-      await api.post(`/api/goals/${selectedGoal.id}/progress`, { progress: val, note: progressForm.note || '' })
+      await api.post(`/api/goals/${selectedGoal.id}/progress`, { progress: trimmed, note: progressForm.note || '' })
       setProgressForm({ progress:'', note:'' }); setSelectedGoal(null); await load()
     } catch(e){ showSnackbar('Unable to add progress') }
+  }
+
+  const resetCumulative = async () => {
+    if (!selectedGoal) return
+    if (!window.confirm('Reset cumulative progress for this goal?')) return
+    try {
+      await api.post(`/api/goals/${selectedGoal.id}/reset`)
+      setSelectedGoal(null); await load()
+    } catch(e){ showSnackbar('Unable to reset cumulative progress') }
   }
 
   return (
@@ -99,7 +112,7 @@ export default function GoalsPage(){
         {!isTrainer() && <Button variant="contained" onClick={()=>setOpenCreate(true)}>Create goal</Button>}
       </Stack>
 
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mt:1, mb:1 }}>
+  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt:1, mb:1 }}>
         <FormControl size="small" sx={{ minWidth: 220 }}>
           <InputLabel id="season-label" shrink>Season</InputLabel>
           <Select labelId="season-label" label="Season" value={seasonId} onChange={e=>setSeasonId(e.target.value)} displayEmpty>
@@ -118,6 +131,7 @@ export default function GoalsPage(){
           />
         )}
         <div style={{ flex:1 }} />
+        <Button onClick={()=>setShowCompleted(v=>!v)}>{showCompleted ? 'Hide completed' : 'Show completed'}</Button>
         <Button onClick={load}>Refresh</Button>
       </Stack>
 
@@ -127,11 +141,36 @@ export default function GoalsPage(){
         </Typography>
       )}
       <List>
-        {goals.map(g => (
-          <ListItem key={g.id} button onClick={()=>setSelectedGoal(g)}>
-            <ListItemText primary={g.description} secondary={`From ${formatIsoDate(g.startDate)} to ${formatIsoDate(g.endDate)} — Progress: ${g.currentProgress ?? 0}%`} />
-          </ListItem>
-        ))}
+        {goals
+          .slice()
+          .sort((a,b)=>{
+            const aCompleted = (a.cumulativeProgress ?? 0) >= 100
+            const bCompleted = (b.cumulativeProgress ?? 0) >= 100
+            if (aCompleted !== bCompleted) return aCompleted ? 1 : -1 // incomplete first
+            // secondary: earlier end date first
+            const aEnd = a.endDate || ''
+            const bEnd = b.endDate || ''
+            if (aEnd && bEnd && aEnd !== bEnd) return aEnd.localeCompare(bEnd)
+            // tertiary: start date
+            const aStart = a.startDate || ''
+            const bStart = b.startDate || ''
+            if (aStart && bStart && aStart !== bStart) return aStart.localeCompare(bStart)
+            // final: description alpha
+            return (a.description||'').localeCompare(b.description||'')
+          })
+          .filter(g => showCompleted || (g.cumulativeProgress ?? 0) < 100)
+          .map(g => {
+          const completed = (g.cumulativeProgress ?? 0) >= 100
+          return (
+            <ListItem key={g.id} button onClick={()=>setSelectedGoal(g)} sx={completed ? { opacity:0.55 } : undefined}>
+              <ListItemText 
+                primary={g.description} 
+                secondary={`From ${formatIsoDate(g.startDate)} to ${formatIsoDate(g.endDate)} — Last increment: ${g.currentProgress ?? 0}% | Cumulative: ${g.cumulativeProgress ?? g.currentProgress ?? 0}${completed && g.completionDate ? ' — Completed: ' + formatIsoDateTime(g.completionDate) : ''}`}
+              />
+              {completed && <Chip size="small" color="success" label="Completed" sx={{ ml:1 }} />}
+            </ListItem>
+          )
+        })}
         {goals.length === 0 && (!isTrainer() || athleteId) && (
           <ListItem><ListItemText primary="No goals found for the selected filters" /></ListItem>
         )}
@@ -151,8 +190,14 @@ export default function GoalsPage(){
                 {seasons.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
               </Select>
             </FormControl>
-            <BelgianDatePicker label="Start" value={belgianToIso(form.start)} onChange={(iso)=>{ const belg = iso ? isoToBelgian(iso) : ''; setForm({...form, start: belg}); setFormErrors({ ...formErrors, start:'', range:'' }) }} />
-            <BelgianDatePicker label="End" value={belgianToIso(form.end)} onChange={(iso)=>{ const belg = iso ? isoToBelgian(iso) : ''; setForm({...form, end: belg}); setFormErrors({ ...formErrors, end:'', range:'' }) }} />
+            <TIDateInput label="Start" value={form.startIso || ''} onChange={(iso,{valid})=>{
+              setForm(f=>({...f, startIso: iso||'', start: iso ? dayjs(iso).format('DD/MM/YYYY') : '' }))
+              setFormErrors(err=>({...err, start: valid ? '' : 'Invalid date', range:''}))
+            }} error={!!formErrors.start} helperText={formErrors.start || 'dd/mm/yyyy'} required />
+            <TIDateInput label="End" value={form.endIso || ''} onChange={(iso,{valid})=>{
+              setForm(f=>({...f, endIso: iso||'', end: iso ? dayjs(iso).format('DD/MM/YYYY') : '' }))
+              setFormErrors(err=>({...err, end: valid ? '' : 'Invalid date', range:''}))
+            }} error={!!formErrors.end} helperText={formErrors.end || 'dd/mm/yyyy'} required />
             {formErrors.range && <Typography color="error" variant="body2">{formErrors.range}</Typography>}
             <TextField label="Description" multiline rows={3} value={form.description} onChange={e=>setForm({...form, description:e.target.value})} />
           </Stack>
@@ -171,12 +216,20 @@ export default function GoalsPage(){
               <Typography>{selectedGoal.description}</Typography>
               <Typography variant="body2">{selectedGoal.startDate ? formatBelgianDate(new Date(selectedGoal.startDate)) : ''} — {selectedGoal.endDate ? formatBelgianDate(new Date(selectedGoal.endDate)) : ''}</Typography>
               <div>
-                <Typography variant="subtitle2">Current progress</Typography>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <LinearProgress variant="determinate" value={selectedGoal.currentProgress ?? 0} sx={{ flex:1 }} />
-                  <Typography variant="body2" sx={{ minWidth:40, textAlign:'right' }}>{selectedGoal.currentProgress ?? 0}%</Typography>
-                </div>
+                <Typography variant="subtitle2">Progress (cumulative)</Typography>
+                <Stack spacing={1}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <LinearProgress variant="determinate" value={Math.min(100, (selectedGoal.cumulativeProgress ?? 0))} sx={{ flex:1 }} />
+                    <Typography variant="body2" sx={{ minWidth:70, textAlign:'right' }}>{Math.min(100, selectedGoal.cumulativeProgress ?? 0)}%</Typography>
+                  </div>
+                  <Typography variant="caption" color="text.secondary">Last increment: {selectedGoal.currentProgress ?? 0}% — Remaining: {Math.max(0, 100 - (selectedGoal.cumulativeProgress ?? 0))}%</Typography>
+                </Stack>
               </div>
+              {(selectedGoal.cumulativeProgress ?? 0) >= 100 && (
+                <Alert severity="success" variant="outlined">
+                  Goal complete{selectedGoal.completionDate ? ' since ' + formatIsoDateTime(selectedGoal.completionDate) : ''}
+                </Alert>
+              )}
               <Divider />
               <Typography variant="subtitle2" sx={{ mt:1 }}>Feedback</Typography>
               {(selectedGoal.feedbacks || []).length === 0 ? <Typography variant="body2">None</Typography> : (
@@ -194,11 +247,18 @@ export default function GoalsPage(){
               )}
               {!isTrainer() && (
                 <>
-                  <Typography variant="subtitle2">Update progress</Typography>
+                  <Typography variant="subtitle2">Add progress increment</Typography>
                   <Stack direction="row" spacing={1} alignItems="center">
-                    <TextField label="Progress %" type="number" size="small" inputProps={{ min:0, max:100 }} value={progressForm.progress} onChange={e=>setProgressForm({...progressForm, progress:e.target.value})} sx={{ width:140 }} />
-                    <TextField label="Note (optional)" size="small" value={progressForm.note} onChange={e=>setProgressForm({...progressForm, note:e.target.value})} sx={{ flex:1 }} />
-                    <Button variant="contained" onClick={submitProgress}>Save</Button>
+                    <TextField label="Increment" type="number" size="small" inputProps={{ min:0 }} value={progressForm.progress}
+                      onChange={e=>{
+                        const val = e.target.value
+                        const remaining = Math.max(0, 100 - (selectedGoal.cumulativeProgress ?? 0))
+                        let n = parseInt(val,10); if(isNaN(n)||n<0) n=''; else if(n>remaining) n=remaining
+                        setProgressForm({...progressForm, progress:n})
+                      }} sx={{ width:140 }} helperText={`Remaining: ${Math.max(0, 100 - (selectedGoal.cumulativeProgress ?? 0))}%`} disabled={(selectedGoal.cumulativeProgress ?? 0) >= 100} />
+                    <TextField label="Note (optional)" size="small" value={progressForm.note} onChange={e=>setProgressForm({...progressForm, note:e.target.value})} sx={{ flex:1 }} disabled={(selectedGoal.cumulativeProgress ?? 0) >= 100} />
+                    <Button variant="contained" onClick={submitProgress} disabled={(selectedGoal.cumulativeProgress ?? 0) >= 100}>Save</Button>
+                    <Button color="warning" onClick={resetCumulative}>Reset</Button>
                   </Stack>
                 </>
               )}
@@ -206,7 +266,7 @@ export default function GoalsPage(){
               {(selectedGoal.progress || []).length === 0 ? <Typography variant="body2">No updates yet</Typography> : (
                 <List>
                   {(selectedGoal.progress || []).map(p => (
-                    <ListItem key={p.id}><ListItemText primary={`${p.progress}%`} secondary={`${p.note || ''} ${p.createdAt ? '— ' + formatIsoDateTime(p.createdAt) : ''}`} /></ListItem>
+                    <ListItem key={p.id}><ListItemText primary={`+${p.progress}`} secondary={`${p.note || ''} ${p.createdAt ? '— ' + formatIsoDateTime(p.createdAt) : ''}`} /></ListItem>
                   ))}
                 </List>
               )}

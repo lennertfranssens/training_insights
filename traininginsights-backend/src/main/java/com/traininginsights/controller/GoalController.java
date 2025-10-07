@@ -61,6 +61,8 @@ public class GoalController {
             var m = new java.util.HashMap<String,Object>();
             m.put("id", g.getId()); m.put("startDate", g.getStartDate()); m.put("endDate", g.getEndDate()); m.put("description", g.getDescription());
             m.put("currentProgress", g.getCurrentProgress());
+            m.put("cumulativeProgress", g.getCumulativeProgress());
+            m.put("completionDate", g.getCompletionDate());
             m.put("feedbacks", goalService.feedbackForGoal(g.getId()));
             m.put("progress", goalService.progressForGoal(g.getId()));
             out.add(m);
@@ -92,6 +94,8 @@ public class GoalController {
             var m = new java.util.HashMap<String,Object>();
             m.put("id", g.getId()); m.put("startDate", g.getStartDate()); m.put("endDate", g.getEndDate()); m.put("description", g.getDescription());
             m.put("currentProgress", g.getCurrentProgress());
+            m.put("cumulativeProgress", g.getCumulativeProgress());
+            m.put("completionDate", g.getCompletionDate());
             m.put("feedbacks", goalService.feedbackForGoal(g.getId()));
             m.put("progress", goalService.progressForGoal(g.getId()));
             out.add(m);
@@ -122,6 +126,18 @@ public class GoalController {
         Object p = req.get("progress"); if (p instanceof Number) progress = ((Number)p).intValue();
         String note = (String) req.getOrDefault("note", "");
         return goalService.addProgress(goal, progress, note);
+    }
+
+    // athlete: reset cumulative progress
+    @PreAuthorize("hasRole('ATHLETE')")
+    @PostMapping("/api/goals/{goalId}/reset")
+    public Map<String,Object> reset(Authentication auth, @PathVariable Long goalId){
+        User athlete = userRepo.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        Goal goal = goalService.findById(goalId);
+        if (goal == null) throw new RuntimeException("Goal not found");
+        if (!goal.getUser().getId().equals(athlete.getId())) throw new RuntimeException("Not your goal");
+        goal = goalService.resetCumulative(goal);
+    return Map.of("id", goal.getId(), "cumulativeProgress", goal.getCumulativeProgress(), "currentProgress", goal.getCurrentProgress(), "completionDate", goal.getCompletionDate());
     }
 
     // flexible date parser: supports Instant ISO, yyyy-MM-dd, and dd/MM/yyyy (local zone)

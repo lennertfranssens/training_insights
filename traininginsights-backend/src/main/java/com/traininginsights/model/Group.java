@@ -30,6 +30,7 @@ public class Group {
     @JoinTable(name = "group_trainers",
         joinColumns = @JoinColumn(name = "group_id"),
         inverseJoinColumns = @JoinColumn(name = "user_id"))
+    @JsonIgnore // prevent deep recursive serialization (Group -> trainers -> roles/clubs/groups)
     private Set<User> trainers = new HashSet<>();
 
     public Long getId() { return id; }

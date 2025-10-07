@@ -28,6 +28,7 @@ export default function AthleteDashboard({ initialSection }){
   const [attachments, setAttachments] = useState({})
   const [presenceSaving, setPresenceSaving] = useState(false)
   const [presenceStatus, setPresenceStatus] = useState(null) // { present: bool, updatedAt }
+  const [presenceMap, setPresenceMap] = useState({}) // trainingId -> { present, updatedAt }
   // read persisted view mode (matches TrainingsPage)
   const storedView = typeof window !== 'undefined' ? window.localStorage.getItem('trainings.viewMode') : null
   const [viewMode, setViewMode] = useState(storedView || 'calendar')
@@ -61,6 +62,15 @@ export default function AthleteDashboard({ initialSection }){
     setTrainings(t.data); setPending(p.data); setAllQuestionnaires(qList); setFilled(f.data || [])
     const firstDaily = qList.find(x => x.daily)
     setDailyQId(firstDaily ? firstDaily.id : '')
+    // Fetch presence for each training (could be optimized later with backend batch endpoint)
+    try {
+      const presEntries = await Promise.all((t.data||[]).map(async tr => {
+        try { const { data } = await api.get(`/api/athlete/trainings/${tr.id}/presence`); return [tr.id, { present: data.present, updatedAt: data.updatedAt }] } catch(e){ return [tr.id, null] }
+      }))
+      const map = {}
+      presEntries.forEach(([id,val])=>{ if(val) map[id]=val })
+      setPresenceMap(map)
+    } catch(e){}
   }
   useEffect(()=>{ load() }, [trainingRange])
   const { showSnackbar } = useSnackbar()
@@ -152,10 +162,13 @@ export default function AthleteDashboard({ initialSection }){
             </TextField>
           </Box>
           <TrainingsListCalendar
-            trainings={trainings}
+            // Pass a Boolean myPresence (calendar/list stripe logic expects true/false/undefined)
+            // presenceMap stores objects { present, updatedAt }; extract the boolean
+            trainings={trainings.map(tr => ({ ...tr, myPresence: presenceMap[tr.id]?.present }))}
             filledResponses={filled}
             viewMode={viewMode}
             onViewModeChange={(v)=>{ setViewMode(v); try{ window.localStorage.setItem('trainings.viewMode', v) }catch(e){} }}
+            autoScrollTodayInList={trainingRange === 'all'}
             initialDate={(() => {
               // When showing all trainings, jump calendar to the most recent past training if available,
               // otherwise to the next upcoming training, else today.

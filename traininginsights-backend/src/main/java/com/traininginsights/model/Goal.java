@@ -27,6 +27,10 @@ public class Goal {
 
     // cached latest progress percentage to show quickly (0-100); authoritative history lives in GoalProgress
     private Integer currentProgress = 0;
+    // cumulative total progress (accumulating increments beyond 100%)
+    private Integer cumulativeProgress = 0;
+    // timestamp when cumulative progress first reached max (100%)
+    private Instant completionDate;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -48,4 +52,8 @@ public class Goal {
 
     public Integer getCurrentProgress() { return currentProgress; }
     public void setCurrentProgress(Integer currentProgress) { this.currentProgress = currentProgress; }
+    public Integer getCumulativeProgress() { return cumulativeProgress; }
+    public void setCumulativeProgress(Integer cumulativeProgress) { this.cumulativeProgress = cumulativeProgress; }
+    public Instant getCompletionDate() { return completionDate; }
+    public void setCompletionDate(Instant completionDate) { this.completionDate = completionDate; }
 }

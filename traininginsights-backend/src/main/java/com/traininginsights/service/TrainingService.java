@@ -4,6 +4,8 @@ import com.traininginsights.model.Group;
 import com.traininginsights.model.Questionnaire;
 import com.traininginsights.model.Training;
 import com.traininginsights.repository.GroupRepository;
+import com.traininginsights.repository.TrainingSeriesRepository;
+import com.traininginsights.model.TrainingSeries;
 import com.traininginsights.repository.QuestionnaireRepository;
 import com.traininginsights.repository.TrainingRepository;
 import org.springframework.stereotype.Service;
@@ -17,10 +19,11 @@ import java.util.Set;
 public class TrainingService {
     private final TrainingRepository repo;
     private final GroupRepository groupRepo;
+    private final TrainingSeriesRepository seriesRepo;
     private final QuestionnaireRepository qRepo;
 
-    public TrainingService(TrainingRepository repo, GroupRepository groupRepo, QuestionnaireRepository qRepo) {
-        this.repo = repo; this.groupRepo = groupRepo; this.qRepo = qRepo;
+    public TrainingService(TrainingRepository repo, GroupRepository groupRepo, QuestionnaireRepository qRepo, TrainingSeriesRepository seriesRepo) {
+        this.repo = repo; this.groupRepo = groupRepo; this.qRepo = qRepo; this.seriesRepo = seriesRepo;
     }
 
     public List<Training> all(){ return repo.findAll(); }
@@ -50,8 +53,18 @@ public class TrainingService {
     public Training assignGroups(Long trainingId, Set<Long> groupIds){
         Training t = get(trainingId);
         Set<Group> gs = new HashSet<>(groupRepo.findAllById(groupIds));
-        t.setGroups(gs);
-        return repo.save(t);
+        if (t.getSeries()!=null){
+            Long seriesId = t.getSeries().getId();
+            for (Training occ : repo.findBySeries_Id(seriesId)){
+                if (occ.isGroupDetached()) continue; // skip detached occurrences
+                occ.setGroups(gs);
+                repo.save(occ);
+            }
+            return get(trainingId);
+        } else {
+            t.setGroups(gs);
+            return repo.save(t);
+        }
     }
 
     public Training setQuestionnaires(Long trainingId, Long preId, Long postId){
@@ -64,5 +77,119 @@ public class TrainingService {
         t.setPreQuestionnaire(pre);
         t.setPostQuestionnaire(post);
         return repo.save(t);
+    }
+
+    // --- Recurrence helpers (skeleton; detailed generation logic to be filled) ---
+    public TrainingSeries createSeries(TrainingSeries s){ return seriesRepo.save(s); }
+
+    public java.util.List<Training> generateOccurrences(TrainingSeries series, java.util.function.Supplier<Training> baseSupplier){
+        java.util.List<Training> list = new java.util.ArrayList<>();
+        java.time.Duration duration = java.time.Duration.between(series.getStartTime(), series.getEndTime());
+        // Parse RRULE
+        RecurrenceUtil.RRule rule = RecurrenceUtil.parse(series.getRrule(), series.getUntil(), series.getCount());
+        java.time.ZonedDateTime seed = java.time.ZonedDateTime.ofInstant(series.getStartTime(), java.time.ZoneId.of(series.getTimezone()));
+        java.util.List<java.time.ZonedDateTime> starts = RecurrenceUtil.expand(rule, seed);
+        int seq = 1;
+        for (java.time.ZonedDateTime zdt : starts){
+            Training t = baseSupplier.get();
+            t.setSeries(series);
+            t.setSeriesSequence(seq++);
+            java.time.Instant startI = zdt.toInstant();
+            t.setTrainingTime(startI);
+            if (!duration.isNegative() && !duration.isZero()){
+                t.setTrainingEndTime(startI.plusSeconds(duration.getSeconds()));
+            } else {
+                t.setTrainingEndTime(startI);
+            }
+            list.add(t);
+        }
+        return list;
+    }
+
+    public void deleteFutureOccurrences(Training pivot){
+        if (pivot.getSeries() == null || pivot.getSeriesSequence()==null){
+            repo.deleteById(pivot.getId());
+            return;
+        }
+        Long seriesId = pivot.getSeries().getId();
+        Integer seq = pivot.getSeriesSequence();
+        for (Training t : repo.findBySeries_IdAndSeriesSequenceGreaterThanEqual(seriesId, seq)){
+            repo.delete(t);
+        }
+    }
+
+    public List<Training> futureAndCurrentFrom(Training pivot){
+        if (pivot.getSeries()==null || pivot.getSeriesSequence()==null){
+            return java.util.List.of(pivot);
+        }
+        return repo.findBySeries_IdAndSeriesSequenceGreaterThanEqual(pivot.getSeries().getId(), pivot.getSeriesSequence());
+    }
+
+    public List<Training> allInSeries(Long seriesId){
+        return repo.findBySeries_Id(seriesId);
+    }
+
+    public List<Group> fetchGroups(Set<Long> ids){
+        return groupRepo.findAllById(ids);
+    }
+
+    public TrainingRepository getTrainingRepository(){ return repo; }
+
+    public Training firstOccurrence(Long seriesId){
+        return repo.findFirstBySeries_IdAndSeriesSequence(seriesId, 1);
+    }
+
+    // Recurrence summary helpers
+    public com.traininginsights.dto.TrainingDtos.RecurrenceSummary buildSummary(Training t){
+        if (t.getSeries()==null){
+            return null;
+        }
+        var s = t.getSeries();
+        com.traininginsights.dto.TrainingDtos.RecurrenceSummary rs = new com.traininginsights.dto.TrainingDtos.RecurrenceSummary();
+        rs.rrule = s.getRrule();
+        long totalL = repo.countBySeries_Id(s.getId());
+        rs.totalOccurrences = (int)Math.min(Integer.MAX_VALUE, totalL);
+        long remainingL = repo.countBySeries_IdAndSeriesSequenceGreaterThanEqual(s.getId(), t.getSeriesSequence()!=null? t.getSeriesSequence():1);
+        rs.remainingOccurrences = (int)Math.min(Integer.MAX_VALUE, remainingL);
+        rs.hasFuture = remainingL > 1; // more than current occurrence
+        // Build a human-readable description
+        try {
+            RecurrenceUtil.RRule rule = RecurrenceUtil.parse(s.getRrule(), s.getUntil(), s.getCount());
+            StringBuilder sb = new StringBuilder();
+            String freq = rule.freq();
+            int interval = rule.interval();
+            java.time.format.TextStyle ts = java.time.format.TextStyle.SHORT;
+            switch (freq) {
+                case "DAILY" -> {
+                    sb.append("Every");
+                    if (interval==1) sb.append(" day"); else sb.append(" ").append(interval).append(" days");
+                }
+                case "WEEKLY" -> {
+                    sb.append("Every");
+                    if (interval==1) sb.append(" week"); else sb.append(" ").append(interval).append(" weeks");
+                    if (!rule.byDay().isEmpty()) {
+                        sb.append(" on ");
+                        sb.append(rule.byDay().stream().map(d -> d.getDisplayName(ts, java.util.Locale.getDefault())).sorted().reduce((a,b)->a+", "+b).orElse(""));
+                    }
+                }
+                case "MONTHLY" -> {
+                    sb.append("Every");
+                    if (interval==1) sb.append(" month"); else sb.append(" ").append(interval).append(" months");
+                }
+                case "YEARLY" -> {
+                    sb.append("Every");
+                    if (interval==1) sb.append(" year"); else sb.append(" ").append(interval).append(" years");
+                }
+                default -> sb.append(freq);
+            }
+            if (rule.count()!=null) {
+                sb.append(" (" + rule.count() + " occurrences)");
+            } else if (rule.until()!=null) {
+                java.time.ZonedDateTime untilZ = java.time.ZonedDateTime.ofInstant(rule.until(), java.time.ZoneOffset.UTC);
+                sb.append(" until ").append(untilZ.toLocalDate());
+            }
+            rs.description = sb.toString();
+        } catch (Exception ignored) {}
+        return rs;
     }
 }

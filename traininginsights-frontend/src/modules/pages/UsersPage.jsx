@@ -2,7 +2,10 @@ import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Chip } from '@mui/material'
 import { isoToBelgian, belgianToIso } from '../common/dateUtils'
-import { BelgianDatePicker } from '../common/BelgianPickers'
+// Replaced BelgianDatePicker with unified TIDateInput
+import { TIDateInput } from '../common/TIPickers'
+import dayjs from 'dayjs'
+import { useSnackbar } from '../common/SnackbarProvider'
 const allRoles = ['ROLE_ATHLETE','ROLE_TRAINER','ROLE_ADMIN']
 export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' }){
   const [users, setUsers] = useState([])
@@ -17,28 +20,56 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
   const [clubs, setClubs] = useState([])
   const [me, setMe] = useState(null)
   const [groups, setGroups] = useState([])
+  const { showSnackbar } = useSnackbar() || { showSnackbar: (m)=>console.log('SNACK',m) }
+  const [errors, setErrors] = useState({}) // field -> message
   const load = async () => { const { data } = await api.get('/api/users'); setUsers(data) }
   useEffect(()=>{ load() }, [])
   useEffect(()=>{ (async ()=>{ const [{data:clubsData},{data:meData}] = await Promise.all([api.get('/api/clubs'), api.get('/api/users/me')]); setClubs(clubsData || []); setMe(meData); })() }, [])
   useEffect(()=>{ (async ()=>{ const { data } = await api.get('/api/groups'); setGroups(data || []) })() }, [])
-  const create = async () => {
-  const payload = { ...form, birthDate: belgianToIso(form.birthDate) }
-    await api.post('/api/users', payload)
-    setOpen(false); setEditingUser(null)
-  setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], groupId: null, birthDate:'', athleteCategory:'SENIOR', phone:'', address:'' })
-    await load()
-  }
-
-  const save = async () => {
-  const payload = { ...form, birthDate: belgianToIso(form.birthDate) }
-    if (editingUser) {
-      await api.put(`/api/users/${editingUser.id}`, payload)
-    } else {
-      await api.post('/api/users', payload)
+  const validateForm = () => {
+  if (!form.firstName.trim()) { setErrors(e=>({...e, firstName:'Required'})); return 'First name required' }
+  if (!form.lastName.trim()) { setErrors(e=>({...e, lastName:'Required'})); return 'Last name required' }
+  if (!form.email.trim()) { setErrors(e=>({...e, email:'Required'})); return 'Email required' }
+    // birth date optional but if provided must be valid iso yyyy-MM-dd, not future, year >=1900
+    if (form.birthDate) {
+      const iso = belgianToIso(form.birthDate)
+      if (!iso) { setErrors(e=>({...e, birthDate:'Invalid format'})); return 'Birth date format invalid' }
+      const d = dayjs(iso)
+      if (!d.isValid()) { setErrors(e=>({...e, birthDate:'Invalid'})); return 'Birth date invalid' }
+      if (d.isAfter(dayjs(), 'day')) { setErrors(e=>({...e, birthDate:'Cannot be future'})); return 'Birth date cannot be in future' }
+      if (d.year() < 1900) { setErrors(e=>({...e, birthDate:'Year too early'})); return 'Birth date year too early' }
     }
-    setOpen(false); setEditingUser(null)
-  setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], groupId: null, birthDate:'', athleteCategory:'SENIOR', phone:'', address:'' })
-    await load()
+    return ''
+  }
+  const save = async () => {
+    setErrors({})
+    const err = validateForm(); if (err){ showSnackbar(err); return }
+    const payload = { ...form, birthDate: belgianToIso(form.birthDate) }
+    try {
+      if (editingUser) {
+        await api.put(`/api/users/${editingUser.id}`, payload)
+        showSnackbar('User updated')
+      } else {
+        await api.post('/api/users', payload)
+        showSnackbar('User created')
+      }
+      setOpen(false); setEditingUser(null)
+      setForm({ firstName:'', lastName:'', email:'', password:'', roleNames:[defaultRole], clubIds: [], groupId: null, birthDate:'', athleteCategory:'SENIOR', phone:'', address:'' })
+      await load()
+    } catch(e){
+      const msg = e?.response?.data?.message || 'Action failed'
+      const errs = e?.response?.data?.errors
+      if (errs && Array.isArray(errs)) {
+        const fieldErrs = {}
+        errs.forEach(er=> { fieldErrs[er.field] = er.message })
+        setErrors(fieldErrs)
+        showSnackbar('Validation errors')
+      } else {
+        // conflict (409) or single message
+        setErrors(e=>({...e, email: msg.includes('Email already in use') ? 'Email already in use' : e.email }))
+        showSnackbar(msg)
+      }
+    }
   }
   const remove = async (id) => { if (!confirm('Delete user?')) return; await api.delete(`/api/users/${id}`); await load() }
   return (
@@ -74,9 +105,21 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
               <Typography>{u.firstName} {u.lastName} — {u.email}</Typography>
               <Stack direction="row" spacing={1} sx={{ mt:1, flexWrap:'wrap' }}>
                 {u.roles?.map(r => <Chip size="small" key={r} label={r.replace('ROLE_','')} />)}
+                {!u.active && <Chip size="small" color="warning" label="Inactive" />}
               </Stack>
             </div>
             <Stack direction="row" spacing={1}>
+              {(me && (me.roles||[]).some(r=>['ROLE_ADMIN','ROLE_SUPERADMIN'].includes(r)) && me.id !== u.id) && (
+                u.active ? (
+                  <Button color="warning" variant="outlined" onClick={async()=>{
+                    try { await api.post(`/api/users/${u.id}/deactivate`); await load(); } catch(e) { /* ignore */ }
+                  }}>Deactivate</Button>
+                ) : (
+                  <Button color="success" variant="contained" onClick={async()=>{
+                    try { await api.post(`/api/users/${u.id}/activate`); await load(); } catch(e) { /* ignore */ }
+                  }}>Activate</Button>
+                )
+              )}
               <Button onClick={async()=>{
                 try {
                   // Fetch with server-side permission checks (trainers restricted to their athletes)
@@ -110,14 +153,13 @@ export default function UsersPage({ title = 'Users', defaultRole='ROLE_ATHLETE' 
   <DialogTitle>{editingUser ? 'Edit User' : 'Create User'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt:1 }}>
-            <TextField label="First name" value={form.firstName} onChange={e=>setForm({...form, firstName:e.target.value})} />
-            <TextField label="Last name" value={form.lastName} onChange={e=>setForm({...form, lastName:e.target.value})} />
-            <TextField label="Email" value={form.email} onChange={e=>setForm({...form, email:e.target.value})} />
-            <TextField label="Password" type="password" value={form.password} onChange={e=>setForm({...form, password:e.target.value})} />
-            <BelgianDatePicker label="Birth date" value={belgianToIso(form.birthDate)} onChange={(iso)=>{
-              // BelgianDatePicker returns iso or null; convert iso back to Belgian for storage to keep prior mapping logic
-              setForm({...form, birthDate: iso ? isoToBelgian(iso) : form.birthDate })
-            }} />
+            <TextField required label="First name" value={form.firstName} onChange={e=>{ setForm({...form, firstName:e.target.value}); setErrors(er=>({...er, firstName:undefined})) }} error={!!errors.firstName} helperText={errors.firstName||''} />
+            <TextField required label="Last name" value={form.lastName} onChange={e=>{ setForm({...form, lastName:e.target.value}); setErrors(er=>({...er, lastName:undefined})) }} error={!!errors.lastName} helperText={errors.lastName||''} />
+            <TextField required label="Email" type="email" value={form.email} onChange={e=>{ setForm({...form, email:e.target.value}); setErrors(er=>({...er, email:undefined})) }} error={!!errors.email} helperText={errors.email||''} />
+            <TextField label="Password" type="password" value={form.password} onChange={e=>{ const v=e.target.value; setForm({...form, password:v}); setErrors(er=>({...er, password: (v && v.length>0 && v.length<6)?'Min 6 chars':''})) }} error={!!errors.password} helperText={errors.password || 'Leave blank to auto-generate'} />
+            <TIDateInput label="Birth date" value={form.birthDate ? belgianToIso(form.birthDate) : ''} onChange={(iso)=>{
+              setForm({...form, birthDate: iso ? isoToBelgian(iso) : ''}); setErrors(er=>({...er, birthDate:undefined}))
+            }} error={!!errors.birthDate} helperText={errors.birthDate || 'dd/mm/yyyy'} />
             <TextField label="Phone" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} />
             <TextField label="Address" value={form.address} onChange={e=>setForm({...form, address:e.target.value})} multiline rows={2} />
             {/* If defaultRole is provided by parent, use it and hide the selector. Otherwise show role choices constrained by caller role. */}

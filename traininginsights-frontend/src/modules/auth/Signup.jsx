@@ -25,6 +25,7 @@ export default function Signup(){
   const onSubmit = async (e) => {
     e.preventDefault();
     setError(null)
+    if (!form.password || form.password.length < 6) { setError('Password must be at least 6 characters'); return }
     const payload = { ...form }
     if (!payload.clubId) delete payload.clubId
     try {
@@ -48,7 +49,7 @@ export default function Signup(){
             <TextField label="First name" value={form.firstName} onChange={e=>setForm({...form, firstName:e.target.value})} />
             <TextField label="Last name" value={form.lastName} onChange={e=>setForm({...form, lastName:e.target.value})} />
             <TextField label="Email" value={form.email} onChange={e=>setForm({...form, email:e.target.value})} />
-            <TextField label="Password" type="password" value={form.password} onChange={e=>setForm({...form, password:e.target.value})} />
+            <TextField label="Password" type="password" value={form.password} onChange={e=>setForm({...form, password:e.target.value})} helperText="Minimum 6 characters" error={!!error && error.toLowerCase().includes('password')} />
             <TextField select label="Athlete Category" value={form.athleteCategory} onChange={e=>setForm({...form, athleteCategory:e.target.value})}>
               {categories.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
             </TextField>

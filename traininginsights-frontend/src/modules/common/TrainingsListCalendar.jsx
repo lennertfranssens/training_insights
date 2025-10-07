@@ -4,7 +4,7 @@ import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import timeGridPlugin from '@fullcalendar/timegrid'
-import { Stack, Paper, Typography, Button, Box, Switch, FormControlLabel, Popper, Fade, Paper as MuiPaper } from '@mui/material'
+import { Stack, Paper, Typography, Button, Box, Popper, Fade, Paper as MuiPaper, Pagination } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 
 export function useGroupColor(){
@@ -36,7 +36,8 @@ export default function TrainingsListCalendar({
   renderActions, // (training) => JSX actions
   renderItemContent, // (training) => JSX content shown in the item's main column (optional)
   onReschedule, // (trainingId, newStartDateISO, newEndDateISO|null) => Promise|void
-  autoFocusToday = false // when true, jumps calendar view to today's date on mount / when switching to calendar
+  autoFocusToday = false, // when true, jumps calendar view to today's date on mount / when switching to calendar
+  autoScrollTodayInList = false // when true (list mode), scrolls to first training occurring today or later
 }){
   const [localView, setLocalView] = useState(()=>{
     if (propViewMode) return propViewMode
@@ -72,17 +73,7 @@ export default function TrainingsListCalendar({
   const primary = theme.palette.primary.main
   const textSecondary = theme.palette.text.secondary
 
-  // Compact density toggle (persist per view key)
-  const densityKey = viewModeKey + '.dense'
-  const [dense, setDense] = useState(()=>{
-    try { return window.localStorage.getItem(densityKey) === '1' } catch(e){ return false }
-  })
-  const toggleDense = () => {
-    setDense(d => {
-      const nv = !d; try { window.localStorage.setItem(densityKey, nv ? '1' : '0') } catch(e){}
-      return nv
-    })
-  }
+  // (Removed compact density toggle)
 
   // Tooltip state
   const [anchorEl, setAnchorEl] = useState(null)
@@ -125,14 +116,51 @@ export default function TrainingsListCalendar({
   const changeCalView = (v) => { if(!v) return; setCalView(v); try { window.localStorage.setItem(calendarViewKey, v) } catch(e){}; if(calendarRef.current){ try { calendarRef.current.getApi().changeView(v) } catch(e){} } }
 
   const MIN_DURATION_MS = 15 * 60 * 1000 // 15 minutes
+  // Events longer than this are visually stretched to fill the slot height in timeGrid view.
+  // Shorter events shrink to their content so they appear more compact.
+  const LONG_EVENT_MS = 45 * 60 * 1000 // 45 minutes threshold for full-height styling
+
+  // Auto-scroll (list mode) to first training occurring today or later when enabled
+  const hasAutoScrolledRef = useRef(false)
+  useEffect(()=>{
+    if (viewMode !== 'list') { hasAutoScrolledRef.current = false; return }
+    // Auto-scroll now handled by pagination (selecting correct page). Keeping hook placeholder if future in-page scrolling needed.
+  }, [viewMode, trainings])
+
+  // ===== List Pagination (10 per page) =====
+  const PAGE_SIZE = 10
+  const sortedTrainings = [...(trainings||[])].sort((a,b)=>{
+    const ta = a.trainingTime ? new Date(a.trainingTime).getTime() : 0
+    const tb = b.trainingTime ? new Date(b.trainingTime).getTime() : 0
+    return ta - tb
+  })
+  const totalPages = Math.max(1, Math.ceil(sortedTrainings.length / PAGE_SIZE))
+  const [listPage, setListPage] = useState(1)
+  const computeTodayPage = () => {
+    if (!sortedTrainings.length) return 1
+    const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0)
+    let idx = sortedTrainings.findIndex(t => {
+      if (!t.trainingTime) return false
+      const dt = new Date(t.trainingTime)
+      return !isNaN(dt.getTime()) && dt.getTime() >= todayMidnight.getTime()
+    })
+    if (idx === -1) idx = sortedTrainings.length - 1
+    return Math.floor(idx / PAGE_SIZE) + 1
+  }
+  // Determine default page focusing on first training today or upcoming when autoScrollTodayInList enabled
+  useEffect(()=>{
+    if (viewMode !== 'list') return
+    if (!autoScrollTodayInList) return
+    setListPage(computeTodayPage())
+  }, [viewMode, autoScrollTodayInList, trainings])
+  const pagedTrainings = sortedTrainings.slice((listPage-1)*PAGE_SIZE, listPage*PAGE_SIZE)
 
   return (
   <Box className="ti-calendar-wrapper" sx={{ '--ti-scrollbar-reserve': 'var(--ti-scrollbar-width,0px)' }}>
       {viewMode === 'calendar' && (
-        <Box sx={{ display:'flex', justifyContent:'flex-end', alignItems:'center', mb:1, flexWrap:'wrap', gap:1 }}>
+        <Box sx={{ display:'flex', justifyContent:'flex-end', alignItems:'center', mb:1 }}>
           <Stack direction="row" spacing={1} alignItems="center">
-            <FormControlLabel control={<Switch size="small" checked={calView==='timeGridWeek'} onChange={()=> changeCalView(calView==='timeGridWeek' ? 'dayGridMonth' : 'timeGridWeek')} />} label={calView==='timeGridWeek' ? 'Week' : 'Month'} />
-            <FormControlLabel control={<Switch size="small" checked={dense} onChange={toggleDense} />} label="Compact" />
+            <Button size="small" variant="outlined" onClick={()=> changeCalView(calView==='timeGridWeek' ? 'dayGridMonth' : 'timeGridWeek')}>View: {calView==='timeGridWeek' ? 'Week view' : 'Month view'}</Button>
           </Stack>
         </Box>
       )}
@@ -202,20 +230,72 @@ export default function TrainingsListCalendar({
           eventContent={(arg)=>{
             // arg.event.id corresponds to training id
             const tId = String(arg.event.id)
-            const hasResponse = (filledResponses||[]).some(r => String(r.training?.id) === tId || String(r.trainingId) === tId)
+            const hasResponse = false // response dot removed (stripe conveys presence); keep var for potential future use
             const training = arg.event.extendedProps.training
-            // compute time label (skip for all-day events)
-            let timeLabel = ''
-            try{
+            // Compute start / end times for stacked display in timeGrid view
+            let startTimeLabel = ''
+            let endTimeLabel = ''
+            try {
               if (!arg.event.allDay && arg.event.start){
-                timeLabel = new Date(arg.event.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                startTimeLabel = new Date(arg.event.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               }
-            }catch(e){}
-            const timeHtml = timeLabel ? `<span style=\"margin-right:8px;color:${textSecondary};font-size:0.9em;\">${timeLabel}</span>` : ''
+              if (!arg.event.allDay && arg.event.end){
+                endTimeLabel = new Date(arg.event.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              }
+            } catch(e){}
+            const isTimeGrid = arg.view.type === 'timeGridWeek' || arg.view.type === 'timeGridDay'
+            const timeSection = isTimeGrid
+              ? (startTimeLabel ? `<div style=\"font-size:0.7rem;line-height:1;color:${textSecondary};\">${startTimeLabel}${endTimeLabel?` – ${endTimeLabel}`:''}</div>` : '')
+              : (startTimeLabel ? `<span style=\"margin-right:6px;color:${textSecondary};font-size:0.75rem;\">${startTimeLabel}${endTimeLabel?` – ${endTimeLabel}`:''}</span>` : '')
             const color = trainingPrimaryColor(training)
-            const groupDots = (training?.groups||[]).slice(0,3).map(g => `<span aria-label="group ${g.name}" role="img" style=\"display:inline-block;width:6px;height:6px;border-radius:50%;background:${colorForGroupId(g.id)};margin-left:4px;\"></span>`).join('')
+            const groupsArr = (training?.groups||[])
+            const visibleGroups = groupsArr.slice(0,3)
+            const hiddenCount = groupsArr.length > 3 ? groupsArr.length - 3 : 0
+            const groupDots = visibleGroups.map(g => `<span aria-label=\"group ${g.name}\" role=\"img\" style=\"display:inline-block;width:6px;height:6px;border-radius:50%;background:${colorForGroupId(g.id)};margin-left:4px;flex-shrink:0;\"></span>`).join('') + (hiddenCount ? `<span style=\"margin-left:4px;font-size:10px;color:${textSecondary};flex-shrink:0;\" aria-label=\"+${hiddenCount} more groups\">+${hiddenCount}</span>` : '')
+            // Recurrence indicator
+            let recurHtml = ''
+            try {
+              if (training?.seriesId) {
+                const recurColor = textSecondary
+                const detached = training?.detached
+                const title = detached ? 'Edited occurrence (detached from series)' : 'Recurring training'
+                recurHtml = `<span aria-label=\"${title}\" title=\"${title}\" style=\"margin-left:4px;font-size:10px;line-height:1;display:inline-flex;align-items:center;color:${recurColor};\">↻${detached?'<sup style=\\"font-size:7px;margin-left:1px;color:#d32f2f;\\">×</sup>':''}</span>`
+              }
+            } catch(e){}
+            // Lightened background to avoid harsh contrast when title text is colored
+            // Derive a subtle translucent background using the base color
+            // Presence-based stripe: green present, red absent, else group color or none
+            // Presence stripe logic for athletes (Boolean myPresence): true=green, false=red, null/undefined=grey
+            const presenceVal = training?.myPresence
+            let stripe = '#9e9e9e' // grey default
+            if (presenceVal === true) stripe = '#2e7d32'
+            else if (presenceVal === false) stripe = '#d32f2f'
+            const neutralBg = theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'
+            const borderColor = theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'
+            const stripeWidth = 4
+            const pad = '0 4px'
+            const leftBorder = `border-left:${stripeWidth}px solid ${stripe};`
+            // Determine event duration to decide if we force full-height (long events) or allow shrink (short events)
+            let durationMs = 0
+            try {
+              const s = arg.event.start?.getTime?.() || 0
+              const e = arg.event.end?.getTime?.() || s
+              durationMs = Math.max(0, e - s)
+            } catch(e){}
+            // Always paint full background area in timeGrid so the colored card fills the slot, but
+            // only stretch inner flex for longer events. For very short events we keep inner auto height
+            // so content doesn't look vertically stretched while background still fills.
+            const isLong = isTimeGrid && durationMs >= LONG_EVENT_MS
+            const outerHeight = isTimeGrid ? 'height:100%;' : 'height:auto;'
+            const contentStretch = isLong ? 'height:100%;' : 'height:auto;'
+            // Outer spacing (visual breathing room) while still letting colored card cover the formal event box.
+            const gap = '1px' // tweakable
+            const outerPad = `padding:${gap};`
+            // Move border/background/stripe to outer so it fills slot; inner just handles layout.
+            // For short events, limit visible vertical content. We'll allow time line + single title line.
+            const clipStyles = !isLong && isTimeGrid ? 'overflow:hidden;' : ''
             return {
-              html: `<div style=\"display:flex;align-items:center;justify-content:space-between;width:100%;padding:${dense? '0 2px':'0 4px'};\"><div style=\"flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">${timeHtml}<span style=\"color:${color};font-weight:500;\">${arg.event.title}</span>${groupDots}</div>${hasResponse ? `<div aria-label=\"questionnaire response submitted\" role=\"img\" style=\"width:8px;height:8px;background:${color};border-radius:50%;margin-left:6px;\"></div>` : ''}</div>`
+              html: `<div style=\"display:block;position:relative;width:100%;${outerHeight}${outerPad}box-sizing:border-box;\"><div style=\"display:flex;flex-direction:column;justify-content:flex-start;gap:2px;${contentStretch}${clipStyles}padding:${pad};background:${neutralBg};border:1px solid ${borderColor};${leftBorder}border-radius:4px;box-sizing:border-box;width:100%;height:100%;\">${timeSection}<div style=\"flex:0 0 auto;display:flex;align-items:center;min-width:0;\"><span style=\"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\"><span style=\"color:inherit;font-weight:600;letter-spacing:.25px;\">${arg.event.title}</span></span>${recurHtml}<div style=\"display:flex;align-items:center;margin-left:4px;\">${groupDots}</div></div></div></div>`
             }
           }}
           eventDidMount={(info)=>{
@@ -246,9 +326,18 @@ export default function TrainingsListCalendar({
           eventClick={(info)=>{ try { onEventClick && onEventClick(String(info.event.id), trainings.find(x=>String(x.id)===String(info.event.id))) } catch(e){} }}
         />
         ) : (
-        <Stack spacing={1}>
-          {(trainings||[]).map(t => (
-            <Paper key={t.id} sx={{ p: dense ? 1 : 2, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <Stack spacing={1} id="ti-trainings-list">
+          {totalPages > 1 && (
+            <Box sx={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <Button size="small" onClick={()=> setListPage(computeTodayPage())}>Today</Button>
+              <Pagination size="small" page={listPage} count={totalPages} onChange={(e,p)=> setListPage(p)} />
+            </Box>
+          )}
+          {pagedTrainings.map(t => {
+            const presenceVal = t?.myPresence
+            const stripeColor = presenceVal === true ? '#2e7d32' : (presenceVal === false ? '#d32f2f' : '#9e9e9e')
+            return (
+            <Paper key={t.id} data-training-time={t.trainingTime || ''} sx={{ p:2, display:'flex', justifyContent:'space-between', alignItems:'center', scrollMarginTop: '72px', borderLeft:'4px solid', borderLeftColor: stripeColor }}>
               <div>
                 {renderItemContent ? renderItemContent(t) : (
                   <>
@@ -263,7 +352,13 @@ export default function TrainingsListCalendar({
                 )}
               </div>
             </Paper>
-          ))}
+            )})}
+          {totalPages > 1 && (
+            <Box sx={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <Button size="small" onClick={()=> setListPage(computeTodayPage())}>Today</Button>
+              <Pagination size="small" page={listPage} count={totalPages} onChange={(e,p)=> setListPage(p)} />
+            </Box>
+          )}
         </Stack>
       )}
       <Popper
@@ -299,3 +394,5 @@ export default function TrainingsListCalendar({
     </Box>
   )
 }
+
+// Auto-scroll effect (placed after component to avoid reordering primary logic) - but needs hooks: so we keep inside component above? Alternative: integrate inside component.

@@ -47,6 +47,7 @@ export default function Settings(){
   useEffect(()=>{ (async ()=>{ try { const { data } = await api.get('/api/users/me'); setForm({ firstName: data.firstName||'', lastName: data.lastName||'', email: data.email||'', phone: data.phone||'', address: data.address||'', dailyReminderTime: data.dailyReminderTime||'', password: '' }); } catch(e){} finally { setLoading(false) } })() }, [])
 
   const save = async () => {
+    if (form.password && form.password.length > 0 && form.password.length < 6) { showSnackbar('Password must be at least 6 characters'); return }
     const payload = { firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone, address: form.address, password: form.password || null, dailyReminderTime: form.dailyReminderTime };
     await api.put('/api/users/me', payload);
     showSnackbar('Settings saved')
@@ -109,7 +110,7 @@ export default function Settings(){
         <TextField label="Email" value={form.email} onChange={e=>setForm({...form, email: e.target.value})} />
         <TextField label="Phone" value={form.phone} onChange={e=>setForm({...form, phone: e.target.value})} />
         <TextField label="Address" value={form.address} onChange={e=>setForm({...form, address: e.target.value})} />
-        <TextField type="password" label="New password (leave empty to keep)" value={form.password} onChange={e=>setForm({...form, password: e.target.value})} />
+  <TextField type="password" label="New password (leave empty to keep)" value={form.password} onChange={e=>setForm({...form, password: e.target.value})} helperText={form.password && form.password.length>0 ? (form.password.length<6? 'Minimum 6 characters' : 'OK') : ' '} error={!!form.password && form.password.length>0 && form.password.length<6} />
         <TextField type="time" label="Daily reminder time" InputLabelProps={{ shrink: true }} value={form.dailyReminderTime || ''} onChange={e=>setForm({...form, dailyReminderTime: e.target.value})} />
         <Stack direction="row" spacing={1}>
           <Button variant="contained" onClick={save}>Save</Button>

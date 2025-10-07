@@ -178,4 +178,26 @@ public class AthleteController {
         var ta = attendanceService.setPresence(t, athlete, present);
         return Map.of("id", ta.getId(), "trainingId", t.getId(), "present", ta.isPresent(), "updatedAt", ta.getUpdatedAt());
     }
+
+    @PatchMapping("/trainings/{id}/presence")
+    @Transactional
+    public Map<String,Object> patchMyPresence(Authentication auth, @PathVariable Long id, @RequestBody Map<String,Object> body){
+        User athlete = userRepository.findByEmailIgnoreCase(auth.getName()).orElseThrow();
+        Training t = trainingRepository.findById(id).orElseThrow();
+        Group g = athlete.getGroupEntity();
+        if (g == null || t.getGroups() == null || t.getGroups().stream().noneMatch(gr -> gr.getId() != null && gr.getId().equals(g.getId()))){
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not allowed to modify presence for this training");
+        }
+        // Supports {present:true|false} to set or {present:null} to clear (if business rules later allow clearing)
+        if (!body.containsKey("present")) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "present required (true/false/null)");
+        Object pv = body.get("present");
+        if (pv == null) {
+            // clearing presence is currently not implemented (attendance deletion). Keep simple: treat null as no-op and return current.
+            var current = attendanceService.byTraining(t).stream().filter(a -> a.getUser().getId().equals(athlete.getId())).findFirst().orElse(null);
+            return Map.of("trainingId", t.getId(), "present", current != null && current.isPresent(), "updatedAt", current != null ? current.getUpdatedAt() : null, "cleared", false);
+        }
+        boolean present = Boolean.parseBoolean(String.valueOf(pv));
+        var ta = attendanceService.setPresence(t, athlete, present);
+        return Map.of("id", ta.getId(), "trainingId", t.getId(), "present", ta.isPresent(), "updatedAt", ta.getUpdatedAt());
+    }
 }

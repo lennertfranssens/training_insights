@@ -18,6 +18,7 @@ public class GoalService {
     private final GoalRepository goalRepository;
     private final GoalFeedbackRepository feedbackRepository;
     private final GoalProgressRepository progressRepository;
+    private static final int MAX_PROGRESS = 100;
 
     public GoalService(GoalRepository goalRepository, GoalFeedbackRepository feedbackRepository, GoalProgressRepository progressRepository) {
         this.goalRepository = goalRepository;
@@ -59,13 +60,35 @@ public class GoalService {
 
     public GoalProgress addProgress(Goal goal, Integer progress, String note){
         if (progress == null) progress = 0;
-        if (progress < 0) progress = 0; if (progress > 100) progress = 100;
+        if (progress < 0) progress = 0;
+        // Treat provided progress as an increment. Cap cumulative at 100.
+        Integer cum = goal.getCumulativeProgress();
+        if (cum == null) cum = 0;
+        if (cum >= MAX_PROGRESS) {
+            // Already complete: ignore further increments (store zero increment for audit if desired)
+            progress = 0;
+        } else if (cum + progress > MAX_PROGRESS) {
+            // Trim increment to remaining room
+            progress = MAX_PROGRESS - cum;
+        }
         GoalProgress gp = new GoalProgress();
         gp.setGoal(goal); gp.setProgress(progress); gp.setNote(note); gp.setCreatedAt(Instant.now());
-        goal.setCurrentProgress(progress);
+        goal.setCurrentProgress(progress); // last applied (possibly trimmed) increment
+        int newCum = Math.min(MAX_PROGRESS, cum + progress);
+        goal.setCumulativeProgress(newCum);
+        if (newCum >= MAX_PROGRESS && goal.getCompletionDate() == null) {
+            goal.setCompletionDate(Instant.now());
+        }
         goalRepository.save(goal);
         return progressRepository.save(gp);
     }
 
     public List<GoalProgress> progressForGoal(Long goalId){ return progressRepository.findByGoalIdOrderByCreatedAtDesc(goalId); }
+
+    public Goal resetCumulative(Goal goal){
+        goal.setCumulativeProgress(0);
+        goal.setCurrentProgress(0);
+        goal.setCompletionDate(null);
+        return goalRepository.save(goal);
+    }
 }

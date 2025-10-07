@@ -1,6 +1,9 @@
 package com.traininginsights.dto;
 
 import com.traininginsights.model.AthleteCategory;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 public class UserDtos {
     public static class UserDTO {
@@ -22,10 +25,16 @@ public class UserDtos {
     }
 
     public static class CreateUserRequest {
+        @NotBlank(message = "firstName required")
         public String firstName;
+        @NotBlank(message = "lastName required")
         public String lastName;
+        @NotBlank(message = "email required")
+        @Email(message = "email invalid")
         public String email;
-        public String password;
+    // Password optional (will be auto-generated if blank); enforce length only if provided
+    @Size(min = 6, message = "password must be at least 6 chars")
+    public String password;
         public String birthDate; // yyyy-MM-dd
         public String athleteCategory;
         public Long groupId;

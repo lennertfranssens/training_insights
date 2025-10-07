@@ -14,6 +14,7 @@ import com.traininginsights.repository.ClubRepository;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.time.LocalDate;
 import java.util.*;
@@ -153,7 +154,7 @@ public class UserController {
 
     @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN','TRAINER')")
     @PostMapping
-    public UserDtos.UserDTO create(@RequestBody UserDtos.CreateUserRequest req){
+    public UserDtos.UserDTO create(@Valid @RequestBody UserDtos.CreateUserRequest req){
         // determine requested roles
         Set<RoleName> roles = new HashSet<>();
         if (req.roleNames != null) {
@@ -187,12 +188,16 @@ public class UserController {
         }
 
         // create user
-        User u = userService.createUser(
-                req.firstName, req.lastName, req.email, req.password,
-                req.birthDate != null ? LocalDate.parse(req.birthDate) : null,
-                req.athleteCategory != null ? AthleteCategory.valueOf(req.athleteCategory) : null,
-                req.groupId, roles
-        );
+    LocalDate birthDate = null;
+    if (req.birthDate != null && !req.birthDate.isBlank()) {
+        try { birthDate = LocalDate.parse(req.birthDate); } catch (Exception e){ throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "birthDate must be yyyy-MM-dd"); }
+    }
+    User u = userService.createUser(
+        req.firstName, req.lastName, req.email, req.password,
+        birthDate,
+        req.athleteCategory != null ? AthleteCategory.valueOf(req.athleteCategory) : null,
+        req.groupId, roles
+    );
 
     // set optional contact and reminder info
     if (req.phone != null || req.address != null || req.dailyReminderTime != null) {
@@ -272,7 +277,13 @@ public class UserController {
         patch.put("email", req.email);
         patch.put("birthDate", req.birthDate);
         patch.put("athleteCategory", req.athleteCategory);
-        patch.put("active", req.active);
+        // Guard: active flag cannot be toggled here unless caller is ADMIN or SUPERADMIN and not acting on self.
+        if (req.active != null) {
+            boolean isAdminOrSuper = callerRoleNames.contains("ROLE_ADMIN") || callerRoleNames.contains("ROLE_SUPERADMIN");
+            if (isAdminOrSuper && !caller.getId().equals(target.getId())) {
+                patch.put("active", req.active);
+            }
+        }
         patch.put("groupId", req.groupId);
         patch.put("roleNames", req.roleNames);
         patch.put("clubIds", req.clubIds);
@@ -287,6 +298,32 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id){ userService.delete(id); }
+
+    // Admin/Superadmin manual activation & deactivation endpoints (cannot act on self)
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    @PostMapping("/{id}/activate")
+    public UserDtos.UserDTO activate(@PathVariable Long id){
+        String callerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        User caller = userRepository.findByEmailIgnoreCase(callerEmail).orElseThrow();
+        if (caller.getId().equals(id)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Cannot activate yourself (already active or self-action not allowed)");
+        User u = userRepository.findById(id).orElseThrow();
+        if (u.isActive()) return toDTO(u); // idempotent
+        userService.activateUser(u);
+        return toDTO(u);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    @PostMapping("/{id}/deactivate")
+    public UserDtos.UserDTO deactivate(@PathVariable Long id){
+        String callerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        User caller = userRepository.findByEmailIgnoreCase(callerEmail).orElseThrow();
+        if (caller.getId().equals(id)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Cannot deactivate yourself");
+        User u = userRepository.findById(id).orElseThrow();
+        if (!u.isActive()) return toDTO(u); // idempotent
+        // simple: reuse updateUser to set active=false
+        userService.updateUser(u.getId(), Map.of("active", false));
+        return toDTO(u);
+    }
 
     private UserDtos.UserDTO toDTO(User u){
         UserDtos.UserDTO dto = new UserDtos.UserDTO();

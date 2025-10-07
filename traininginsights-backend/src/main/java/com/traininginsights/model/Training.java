@@ -1,6 +1,8 @@
 package com.traininginsights.model;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 import java.util.HashSet;
@@ -78,4 +80,41 @@ public class Training {
 
     public Instant getNotificationTime() { return notificationTime; }
     public void setNotificationTime(Instant notificationTime) { this.notificationTime = notificationTime; }
+
+    // Recurrence fields
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "series_id")
+    @JsonIgnore
+    private TrainingSeries series;
+
+    @Column(name = "series_sequence")
+    private Integer seriesSequence; // 1-based index within the series
+
+    @Column(name = "detached", nullable = false)
+    private boolean detached = false; // true if edited independently after creation
+
+    // If true, this occurrence's group assignments are independent from its series (no cascade updates)
+    @Column(name = "group_detached", nullable = false)
+    private boolean groupDetached = false;
+
+    // Creator (trainer/admin) who authored this training; used to allow visibility for ungrouped trainings
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by_user_id")
+    @JsonIgnore
+    private User createdBy;
+
+    public User getCreatedBy() { return createdBy; }
+    public void setCreatedBy(User createdBy) { this.createdBy = createdBy; }
+
+    public TrainingSeries getSeries() { return series; }
+    public void setSeries(TrainingSeries series) { this.series = series; }
+    @JsonProperty("seriesId")
+    public Long getSeriesId(){ return series != null ? series.getId() : null; }
+    public Integer getSeriesSequence() { return seriesSequence; }
+    public void setSeriesSequence(Integer seriesSequence) { this.seriesSequence = seriesSequence; }
+    public boolean isDetached() { return detached; }
+    public void setDetached(boolean detached) { this.detached = detached; }
+
+    public boolean isGroupDetached() { return groupDetached; }
+    public void setGroupDetached(boolean groupDetached) { this.groupDetached = groupDetached; }
 }

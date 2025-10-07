@@ -1,6 +1,7 @@
 package com.traininginsights.service;
 
 import com.traininginsights.model.*;
+import com.traininginsights.exception.ResourceConflictException;
 import com.traininginsights.repository.GroupRepository;
 import com.traininginsights.repository.ClubRepository;
 import com.traininginsights.repository.RoleRepository;
@@ -34,12 +35,21 @@ public class UserService {
     @Transactional
     public User createUser(String firstName, String lastName, String email, String rawPassword,
                            LocalDate birthDate, AthleteCategory category, Long groupId, Set<RoleName> roles) {
-        if (userRepo.existsByEmailIgnoreCase(email)) throw new IllegalArgumentException("Email already in use");
+    if (userRepo.existsByEmailIgnoreCase(email)) throw new ResourceConflictException("Email already in use");
         User u = new User();
         u.setFirstName(firstName);
         u.setLastName(lastName);
         u.setEmail(email);
-        u.setPasswordHash(encoder.encode(rawPassword));
+        String effectivePassword = rawPassword;
+        if (effectivePassword == null || effectivePassword.isBlank() || effectivePassword.length() < 6) {
+            // generate simple random 12-char password (letters+digits) - can be reset later via activation
+            String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+            java.security.SecureRandom rnd = new java.security.SecureRandom();
+            StringBuilder sb = new StringBuilder();
+            for(int i=0;i<12;i++) sb.append(chars.charAt(rnd.nextInt(chars.length())));
+            effectivePassword = sb.toString();
+        }
+        u.setPasswordHash(encoder.encode(effectivePassword));
         u.setBirthDate(birthDate);
         u.setAthleteCategory(category);
         if (groupId != null) {
@@ -135,6 +145,7 @@ public class UserService {
         if (patch.containsKey("password")) {
             String newPass = (String) patch.get("password");
             if (newPass != null && !newPass.isBlank()) {
+                if (newPass.length() < 6) throw new IllegalArgumentException("Password must be at least 6 characters");
                 u.setPasswordHash(encoder.encode(newPass));
             }
         }

@@ -32,6 +32,9 @@ public class TrainingAttendanceService {
     @Transactional(readOnly = true)
     public List<TrainingAttendance> byTraining(Training t){ return repo.findByTraining(t); }
 
+    @Transactional(readOnly = true)
+    public List<TrainingAttendance> byUser(User u){ return repo.findByUser(u); }
+
     // Presence rate per training over eligible athletes (athletes in the training's groups)
     @Transactional(readOnly = true)
     public double trainingPresenceRate(Training t){

@@ -22,4 +22,12 @@ public interface TrainingRepository extends JpaRepository<Training, Long> {
 
     // Check whether a training with id exists that is associated with the given group id
     boolean existsByIdAndGroups_Id(Long id, Long groupId);
+
+    // Recurrence helpers
+    List<Training> findBySeries_Id(Long seriesId);
+    List<Training> findBySeries_IdAndSeriesSequenceGreaterThanEqual(Long seriesId, Integer sequence);
+    long countBySeries_Id(Long seriesId);
+    long countBySeries_IdAndSeriesSequenceGreaterThanEqual(Long seriesId, Integer sequence);
+
+    Training findFirstBySeries_IdAndSeriesSequence(Long seriesId, Integer sequence);
 }

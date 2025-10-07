@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Paper, Typography, Stack, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText, Divider, LinearProgress, MenuItem, Select, FormControl, InputLabel, Autocomplete, Alert, Chip } from '@mui/material'
-import { formatBelgianDate, belgianToIso, isoToBelgian, formatIsoDate, formatIsoDateTime } from '../common/dateUtils'
+import { formatBelgianDate, formatIsoDate, formatIsoDateTime } from '../common/dateUtils'
 import { TIDateInput } from '../common/TIPickers'
 import { useSnackbar } from '../common/SnackbarProvider'
 
@@ -15,7 +15,7 @@ export default function GoalsPage(){
   const [athleteOptions, setAthleteOptions] = useState([])
   const [athleteQuery, setAthleteQuery] = useState('')
   const [openCreate, setOpenCreate] = useState(false)
-  const [form, setForm] = useState({ start:'', end:'', description:'' })
+  const [form, setForm] = useState({ startIso:'', endIso:'', description:'' })
   const [formErrors, setFormErrors] = useState({ start:'', end:'', range:'' })
   const [selectedGoal, setSelectedGoal] = useState(null)
   const [showCompleted, setShowCompleted] = useState(true)
@@ -53,13 +53,11 @@ export default function GoalsPage(){
   const create = async () => {
     try {
       if (!seasonId) { showSnackbar('Please select a season for this goal'); return }
-  // validate dates (Belgian dd/mm/yyyy)
-  const errors = { start:'', end:'', range:'' }
-  if (!form.start) errors.start = 'Start date is required'
-  if (!form.end) errors.end = 'End date is required'
-  const parse = (s)=>{ if(!s) return null; const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m) return null; return new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1])) }
-  const startDate = parse(form.start)
-  const endDate = parse(form.end)
+      const errors = { start:'', end:'', range:'' }
+      if (!form.startIso) errors.start = 'Start date is required'
+      if (!form.endIso) errors.end = 'End date is required'
+      const startDate = form.startIso ? new Date(form.startIso) : null
+      const endDate = form.endIso ? new Date(form.endIso) : null
       if (startDate && endDate && endDate < startDate) errors.range = 'End date must be on or after start date'
       const season = seasons.find(s => String(s.id) === String(seasonId))
       const seasonStart = season?.startDate ? new Date(season.startDate) : null
@@ -68,11 +66,9 @@ export default function GoalsPage(){
       if (seasonEnd && endDate && endDate > new Date(seasonEnd.getFullYear(), seasonEnd.getMonth(), seasonEnd.getDate())) errors.end = 'End is after season end'
       setFormErrors(errors)
       if (errors.start || errors.end || errors.range) { showSnackbar(errors.start || errors.end || errors.range); return }
-
-  // send dates as provided (already dd/MM/yyyy)
-  await api.post('/api/athlete/goals', { start: form.start, end: form.end, description: form.description, seasonId: seasonId || null })
-      setOpenCreate(false); setForm({ start:'', end:'', description:'' }); await load()
-  } catch(e){ showSnackbar('Unable to create goal: ' + (e?.response?.data?.message || e.message)) }
+      await api.post('/api/athlete/goals', { start: formatBelgianDate(startDate), end: formatBelgianDate(endDate), description: form.description, seasonId: seasonId || null })
+      setOpenCreate(false); setForm({ startIso:'', endIso:'', description:'' }); await load()
+    } catch(e){ showSnackbar('Unable to create goal: ' + (e?.response?.data?.message || e.message)) }
   }
 
   const submitFeedback = async () => {
@@ -191,11 +187,11 @@ export default function GoalsPage(){
               </Select>
             </FormControl>
             <TIDateInput label="Start" value={form.startIso || ''} onChange={(iso,{valid})=>{
-              setForm(f=>({...f, startIso: iso||'', start: iso ? dayjs(iso).format('DD/MM/YYYY') : '' }))
+              setForm(f=>({...f, startIso: iso||'' }))
               setFormErrors(err=>({...err, start: valid ? '' : 'Invalid date', range:''}))
             }} error={!!formErrors.start} helperText={formErrors.start || 'dd/mm/yyyy'} required />
             <TIDateInput label="End" value={form.endIso || ''} onChange={(iso,{valid})=>{
-              setForm(f=>({...f, endIso: iso||'', end: iso ? dayjs(iso).format('DD/MM/YYYY') : '' }))
+              setForm(f=>({...f, endIso: iso||'' }))
               setFormErrors(err=>({...err, end: valid ? '' : 'Invalid date', range:''}))
             }} error={!!formErrors.end} helperText={formErrors.end || 'dd/mm/yyyy'} required />
             {formErrors.range && <Typography color="error" variant="body2">{formErrors.range}</Typography>}

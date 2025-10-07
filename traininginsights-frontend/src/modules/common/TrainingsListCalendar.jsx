@@ -173,6 +173,28 @@ export default function TrainingsListCalendar({
           firstDay={1}
           initialDate={initialDate}
           editable={!!onReschedule}
+          eventDurationEditable={!!onReschedule}
+          eventStartEditable={!!onReschedule}
+          eventResizableFromStart={!!onReschedule}
+          eventOverlap={true}
+          dragRevertDuration={150}
+          eventDragMinDistance={1}
+          handleWindowResize={true}
+          dragScroll={true}
+          // Set to 0 so desktop week view drags begin immediately on mousedown
+          longPressDelay={0}
+          eventLongPressDelay={0}
+          selectLongPressDelay={0}
+          selectable={false}
+          eventClassNames={(arg)=>{
+            const classes = []
+            if (onReschedule) classes.push('ti-draggable')
+            // Debug: log once per mount
+            try { console.debug('[TrainingsListCalendar] eventClassNames', arg.event.id, classes) } catch(e){}
+            return classes
+          }}
+          eventDragStart={(info)=>{ try { console.debug('[TrainingsListCalendar] drag start', info.event.id, info.event.start); } catch(e){} }}
+          eventDragStop={(info)=>{ try { console.debug('[TrainingsListCalendar] drag stop', info.event.id, info.event.start); } catch(e){} }}
           eventAllow={(dropInfo, draggedEvent)=>{
             // Prevent moving start before today's date (compare date portion)
             // In week view some browsers report undefined dropInfo.start briefly; allow in that case to avoid false reverts.
@@ -226,21 +248,26 @@ export default function TrainingsListCalendar({
           // The calendar root element receives CSS variable overrides for theming
           dayCellContent={(arg)=> arg.dayNumberText }
           // Theme variables now applied globally in App.jsx
-          events={(trainings||[]).map(t => ({ id: t.id, title: t.title, start: t.trainingTime, end: t.trainingEndTime || null, extendedProps:{ training: t } }))}
+          events={(trainings||[]).map(t => ({ id: t.id, title: t.title, start: t.trainingTime, end: t.trainingEndTime || null, editable: !!onReschedule, allDay: false, extendedProps:{ training: t } }))}
           eventContent={(arg)=>{
+            // Toggle to true to simplify rendering if diagnosing drag interference
+            const __SIMPLE_DEBUG_RENDER = false
             // arg.event.id corresponds to training id
             const tId = String(arg.event.id)
             const hasResponse = false // response dot removed (stripe conveys presence); keep var for potential future use
             const training = arg.event.extendedProps.training
+            if (__SIMPLE_DEBUG_RENDER){
+              return { html: `<div style=\"padding:2px 4px;font-size:11px;border:1px solid #888;border-left:4px solid ${trainingPrimaryColor(training)};background:rgba(0,0,0,0.05);\">${arg.event.title}</div>` }
+            }
             // Compute start / end times for stacked display in timeGrid view
             let startTimeLabel = ''
             let endTimeLabel = ''
             try {
               if (!arg.event.allDay && arg.event.start){
-                startTimeLabel = new Date(arg.event.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                startTimeLabel = new Date(arg.event.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
               }
               if (!arg.event.allDay && arg.event.end){
-                endTimeLabel = new Date(arg.event.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                endTimeLabel = new Date(arg.event.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
               }
             } catch(e){}
             const isTimeGrid = arg.view.type === 'timeGridWeek' || arg.view.type === 'timeGridDay'
@@ -299,7 +326,17 @@ export default function TrainingsListCalendar({
             }
           }}
           eventDidMount={(info)=>{
-            try { info.el.style.cursor = 'pointer' } catch(e){}
+            try {
+              // Ensure pointer events enabled (defensive)
+              info.el.style.pointerEvents = 'auto'
+              if (onReschedule) {
+                info.el.style.cursor = 'move'
+                // eslint-disable-next-line no-console
+                console.debug('[TrainingsListCalendar] eventDidMount draggable?', info.event.id, info.el.className)
+              } else {
+                info.el.style.cursor = 'pointer'
+              }
+            } catch(e){}
             // Hover listeners for tooltip
             info.el.addEventListener('mouseenter', ()=> handleMouseEnter(info))
             info.el.addEventListener('mouseleave', handleMouseLeave)

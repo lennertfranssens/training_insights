@@ -398,6 +398,7 @@ public class TrainingController {
         dto.title = t.getTitle();
         dto.description = t.getDescription();
         dto.trainingTime = t.getTrainingTime();
+    dto.trainingEndTime = t.getTrainingEndTime();
         dto.visibleToAthletes = t.isVisibleToAthletes();
         dto.seriesId = t.getSeriesId();
         dto.seriesSequence = t.getSeriesSequence();

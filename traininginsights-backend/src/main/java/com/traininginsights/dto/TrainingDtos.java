@@ -9,6 +9,7 @@ public class TrainingDtos {
         public String title;
         public String description;
         public Instant trainingTime;
+    public Instant trainingEndTime;
         public boolean visibleToAthletes;
         public Set<Long> groupIds;
         // Lightweight group objects (id + name) to support existing frontend expectations

@@ -7,7 +7,7 @@ import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, D
 import { LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 // Unified pickers
-import { TIDateInput, TITimeInput } from '../common/TIPickers'
+import { TIDateInput } from '../common/TIPickers'
 import dayjs from 'dayjs'
 import QuestionnaireForm from '../common/QuestionnaireForm'
 import PlaceholderText from '../common/PlaceholderText'
@@ -277,8 +277,8 @@ export default function TrainingsPage(){
             yearMonthDay = `${yyyy}-${mm}-${dd}`
           }
           // default start time 09:00 local
-          const local = `${yearMonthDay}T09:00`
-          setForm({ title:'', description:'', trainingTime: local, visibleToAthletes:true, groupIds:[], preQuestionnaireId:null, postQuestionnaireId:null })
+          const startIso = toUtcIso(yearMonthDay, '09:00')
+          setForm({ title:'', description:'', trainingTime: startIso, trainingEndTime:'', visibleToAthletes:true, groupIds:[], preQuestionnaireId:null, postQuestionnaireId:null })
           setEditingTraining(null); setOpen(true)
         }}
           onEventClick={async (id, t)=>{
@@ -296,13 +296,13 @@ export default function TrainingsPage(){
               setAttachments(prev => ({ ...prev, [t.id]: at }))
               // load questionnaire responses for this training (pre/post)
               try { const { data: qr } = await api.get(`/api/trainings/${t.id}/questionnaire-responses`); setQuestionnaireResponses(prev => ({ ...prev, [t.id]: qr })); } catch(e) { /* ignore */ }
-              const dt = t.trainingTime ? new Date(t.trainingTime) : null
-              const endDt = t.trainingEndTime ? new Date(t.trainingEndTime) : null
-              const local = dt ? new Date(dt.getTime() - dt.getTimezoneOffset()*60000).toISOString().slice(0,16) : ''
-              const localEnd = endDt ? new Date(endDt.getTime() - endDt.getTimezoneOffset()*60000).toISOString().slice(0,16) : ''
+              const { date: startDate, time: startTime } = isoToLocalDateTime(t.trainingTime)
+              const { date: endDate, time: endTime } = isoToLocalDateTime(t.trainingEndTime)
+              const local = startDate && startTime ? `${startDate}T${startTime}` : ''
+              const localEnd = endDate && endTime ? `${endDate}T${endTime}` : ''
               const rec = (t.recurrence && t.recurrence.rrule) ? parseRRule(t.recurrence.rrule) : (t.recurrenceSummary?.rrule ? parseRRule(t.recurrenceSummary.rrule) : null)
               const recurrenceState = rec ? { ...rec, enabled:true } : { enabled:false, freq:'WEEKLY', interval:1, count:'', until:'', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
-              setForm({ title: t.title, description: t.description || '', trainingTime: local, trainingEndTime: localEnd, visibleToAthletes: t.visibleToAthletes, groupIds: (t.groups||t.groupIds||[]).map(g => typeof g==='object'? g.id : g), preQuestionnaireId: t.preQuestionnaire?.id || null, postQuestionnaireId: t.postQuestionnaire?.id || null, preNotificationMinutes: t.preNotificationMinutes || 0, recurrence: recurrenceState })
+              setForm({ title: t.title, description: t.description || '', trainingTime: t.trainingTime, trainingEndTime: t.trainingEndTime || '', visibleToAthletes: t.visibleToAthletes, groupIds: (t.groups||t.groupIds||[]).map(g => typeof g==='object'? g.id : g), preQuestionnaireId: t.preQuestionnaire?.id || null, postQuestionnaireId: t.postQuestionnaire?.id || null, preNotificationMinutes: t.preNotificationMinutes || 0, recurrence: recurrenceState })
               setOpen(true)
               return
             }
@@ -436,15 +436,12 @@ export default function TrainingsPage(){
                   <Stack direction="row" spacing={2}>
                     <div style={{ flex:1 }}>
                       <Typography variant="caption" sx={{ mb:0.5, display:'block' }}>Start date</Typography>
-                      <TIDateInput value={form.trainingTime ? form.trainingTime.slice(0,10) : ''} onChange={(iso)=>{
-                        let newStart = ''
-                        if (iso && form.trainingTime) {
-                          // preserve time portion
-                          const time = form.trainingTime.slice(11,16)
-                          newStart = iso + 'T' + (time||'00:00') + ':00.000Z'
-                        } else if (iso) {
-                          newStart = iso + 'T00:00:00.000Z'
-                        }
+                      <TIDateInput value={form.trainingTime ? isoToLocalDateTime(form.trainingTime).date : ''} onChange={(iso)=>{
+                        let newStart = form.trainingTime
+                        if (iso){
+                          const time = form.trainingTime ? isoToLocalDateTime(form.trainingTime).time : '00:00'
+                          newStart = toUtcIso(iso, time || '00:00')
+                        } else newStart = ''
                         let newEnd = form.trainingEndTime
                         if (newEnd && newStart && new Date(newEnd) <= new Date(newStart)) newEnd = ''
                         setForm(f=>({...f, trainingTime:newStart, trainingEndTime:newEnd }))
@@ -452,10 +449,11 @@ export default function TrainingsPage(){
                     </div>
                     <div style={{ width:140 }}>
                       <Typography variant="caption" sx={{ mb:0.5, display:'block' }}>Start time</Typography>
-                      <TITimeInput value={form.trainingTime ? form.trainingTime.slice(11,16) : ''} onChange={(t)=>{
-                        if (!t){ setForm(f=>({...f, trainingTime:'', trainingEndTime:'' })); return }
-                        const date = form.trainingTime ? form.trainingTime.slice(0,10) : dayjs().format('YYYY-MM-DD')
-                        const newStart = date + 'T' + t + ':00.000Z'
+                      <TextField type="time" InputLabelProps={{ shrink:true }} value={form.trainingTime ? isoToLocalDateTime(form.trainingTime).time : ''} onChange={(e)=>{
+                        const tVal = e.target.value
+                        if (!tVal){ setForm(f=>({...f, trainingTime:'', trainingEndTime:'' })); return }
+                        const date = form.trainingTime ? isoToLocalDateTime(form.trainingTime).date : dayjs().format('YYYY-MM-DD')
+                        const newStart = toUtcIso(date, tVal)
                         let newEnd = form.trainingEndTime
                         if (newEnd && new Date(newEnd) <= new Date(newStart)) newEnd = ''
                         setForm(f=>({...f, trainingTime:newStart, trainingEndTime:newEnd }))
@@ -465,23 +463,24 @@ export default function TrainingsPage(){
                   <Stack direction="row" spacing={2}>
                     <div style={{ flex:1 }}>
                       <Typography variant="caption" sx={{ mb:0.5, display:'block' }}>End date</Typography>
-                      <TIDateInput value={form.trainingEndTime ? form.trainingEndTime.slice(0,10) : ''} onChange={(iso)=>{
-                        let newEnd = ''
-                        if (iso && form.trainingEndTime) {
-                          const time = form.trainingEndTime.slice(11,16)
-                          newEnd = iso + 'T' + (time||'00:00') + ':00.000Z'
-                        } else if (iso) newEnd = iso + 'T00:00:00.000Z'
+                      <TIDateInput value={form.trainingEndTime ? isoToLocalDateTime(form.trainingEndTime).date : ''} onChange={(iso)=>{
+                        let newEnd = form.trainingEndTime
+                        if (iso){
+                          const time = form.trainingEndTime ? isoToLocalDateTime(form.trainingEndTime).time : (form.trainingTime ? isoToLocalDateTime(form.trainingTime).time : '00:00')
+                          newEnd = toUtcIso(iso, time || '00:00')
+                        } else newEnd = ''
                         if (newEnd && form.trainingTime && new Date(newEnd) <= new Date(form.trainingTime)) newEnd = ''
                         setForm(f=>({...f, trainingEndTime:newEnd }))
                       }} />
                     </div>
                     <div style={{ width:140 }}>
                       <Typography variant="caption" sx={{ mb:0.5, display:'block' }}>End time</Typography>
-                      <TITimeInput value={form.trainingEndTime ? form.trainingEndTime.slice(11,16) : ''} onChange={(t)=>{
-                        if (!t){ setForm(f=>({...f, trainingEndTime:'' })); return }
-                        const date = form.trainingEndTime ? form.trainingEndTime.slice(0,10) : (form.trainingTime ? form.trainingTime.slice(0,10) : '')
+                      <TextField type="time" InputLabelProps={{ shrink:true }} value={form.trainingEndTime ? isoToLocalDateTime(form.trainingEndTime).time : ''} onChange={(e)=>{
+                        const tVal = e.target.value
+                        if (!tVal){ setForm(f=>({...f, trainingEndTime:'' })); return }
+                        const date = form.trainingEndTime ? isoToLocalDateTime(form.trainingEndTime).date : (form.trainingTime ? isoToLocalDateTime(form.trainingTime).date : '')
                         if (!date){ setForm(f=>({...f, trainingEndTime:'' })); return }
-                        let newEnd = date + 'T' + t + ':00.000Z'
+                        let newEnd = toUtcIso(date, tVal)
                         if (form.trainingTime && new Date(newEnd) <= new Date(form.trainingTime)) newEnd = ''
                         setForm(f=>({...f, trainingEndTime:newEnd }))
                       }} />
@@ -793,3 +792,23 @@ export default function TrainingsPage(){
     </Paper>
   )
 }
+
+  // ===== Timezone helpers (local -> UTC ISO, UTC ISO -> local display) =====
+  const toUtcIso = (dateStr /* YYYY-MM-DD */, timeStr /* HH:mm */) => {
+    if (!dateStr || !timeStr) return ''
+    const [y,m,d] = dateStr.split('-').map(Number)
+    const [hh,mm] = timeStr.split(':').map(Number)
+    const local = new Date(y, m-1, d, hh, mm, 0, 0) // local timezone
+    return local.toISOString()
+  }
+  const isoToLocalDateTime = (iso) => {
+    if (!iso) return { date:'', time:'' }
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return { date:'', time:'' }
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth()+1).padStart(2,'0')
+    const dd = String(d.getDate()).padStart(2,'0')
+    const hh = String(d.getHours()).padStart(2,'0')
+    const mi = String(d.getMinutes()).padStart(2,'0')
+    return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${mi}` }
+  }

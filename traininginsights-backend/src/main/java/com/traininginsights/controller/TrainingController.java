@@ -474,7 +474,8 @@ public class TrainingController {
             return;
         }
         boolean trainerAssigned = t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getId().equals(caller.getId())));
-        if (!trainerAssigned) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to delete this training");
+        boolean isOwner = t.getCreatedBy() != null && t.getCreatedBy().getId().equals(caller.getId());
+        if (!trainerAssigned && !isOwner) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to delete this training");
         handleSeriesDeleteScope(t, scope);
     }
 

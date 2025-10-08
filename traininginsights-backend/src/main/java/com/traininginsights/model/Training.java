@@ -106,6 +106,14 @@ public class Training {
     public User getCreatedBy() { return createdBy; }
     public void setCreatedBy(User createdBy) { this.createdBy = createdBy; }
 
+    // Attachments (cascade removal so deleting a training cleans up dependent rows)
+    @OneToMany(mappedBy = "training", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    private java.util.Set<Attachment> attachments = new java.util.HashSet<>();
+
+    public java.util.Set<Attachment> getAttachments() { return attachments; }
+    public void setAttachments(java.util.Set<Attachment> attachments) { this.attachments = attachments; }
+
     public TrainingSeries getSeries() { return series; }
     public void setSeries(TrainingSeries series) { this.series = series; }
     @JsonProperty("seriesId")

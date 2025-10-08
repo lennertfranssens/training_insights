@@ -21,9 +21,11 @@ public class TrainingService {
     private final GroupRepository groupRepo;
     private final TrainingSeriesRepository seriesRepo;
     private final QuestionnaireRepository qRepo;
+    private final com.traininginsights.repository.AttachmentRepository attachmentRepo;
+    private final String uploadsDir;
 
-    public TrainingService(TrainingRepository repo, GroupRepository groupRepo, QuestionnaireRepository qRepo, TrainingSeriesRepository seriesRepo) {
-        this.repo = repo; this.groupRepo = groupRepo; this.qRepo = qRepo; this.seriesRepo = seriesRepo;
+    public TrainingService(TrainingRepository repo, GroupRepository groupRepo, QuestionnaireRepository qRepo, TrainingSeriesRepository seriesRepo, com.traininginsights.repository.AttachmentRepository attachmentRepo, @org.springframework.beans.factory.annotation.Value("${app.uploadsDir:uploads}") String uploadsDir) {
+        this.repo = repo; this.groupRepo = groupRepo; this.qRepo = qRepo; this.seriesRepo = seriesRepo; this.attachmentRepo = attachmentRepo; this.uploadsDir = uploadsDir;
     }
 
     public List<Training> all(){ return repo.findAll(); }
@@ -40,7 +42,25 @@ public class TrainingService {
         Training saved = repo.save(t);
         return saved;
     }
-    public void delete(Long id){ repo.deleteById(id); }
+    public void delete(Long id){
+        var opt = repo.findById(id);
+        if (opt.isEmpty()) return;
+        Training t = opt.get();
+        try {
+            // Collect and remove attachment files from disk before deleting entity (cascade removes DB rows)
+            java.util.List<com.traininginsights.model.Attachment> atts = attachmentRepo.findByTraining(t);
+            for (var a : atts){
+                try {
+                    if (a.getPath()!=null && !a.getPath().isBlank()) {
+                        java.nio.file.Path base = java.nio.file.Paths.get(uploadsDir).toAbsolutePath().normalize();
+                        java.nio.file.Path p = base.resolve(a.getPath()).normalize();
+                        if (p.startsWith(base)) java.nio.file.Files.deleteIfExists(p);
+                    }
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
+        repo.delete(t); // cascades remove attachments
+    }
 
     public List<Training> upcomingForGroup(Group group){
         return repo.findUpcomingForGroup(group, Instant.now());

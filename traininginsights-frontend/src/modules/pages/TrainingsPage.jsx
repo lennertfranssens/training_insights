@@ -16,30 +16,29 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import TrainingsListCalendar from '../common/TrainingsListCalendar'
 import GroupColorLegend from '../common/GroupColorLegend'
-// Parse minimal RRULE subset (FREQ, INTERVAL, COUNT, UNTIL)
+// Parse minimal RRULE subset (FREQ, INTERVAL, COUNT, UNTIL) -> normalizes UNTIL to yyyy-MM-dd (date only)
 function parseRRule(rrule){
-  if(!rrule) return null;
-  const base = { enabled:true, freq:'WEEKLY', interval:1, count:'', until:'', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  if(!rrule) return null
+  const base = { enabled:true, freq:'WEEKLY', interval:1, count:'', until:'', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
   try {
     rrule.split(';').forEach(p=>{
-      const [k,v] = p.split('='); if(!k||!v) return; const key=k.toUpperCase();
-      if(key==='FREQ') base.freq=v.toUpperCase();
-      else if(key==='INTERVAL'){ const n=parseInt(v,10); if(!isNaN(n)&&n>0) base.interval=n; }
-      else if(key==='COUNT'){ base.count=v; }
+      const [k,v] = p.split('='); if(!k||!v) return; const key=k.toUpperCase()
+      if(key==='FREQ') base.freq=v.toUpperCase()
+      else if(key==='INTERVAL'){ const n=parseInt(v,10); if(!isNaN(n)&&n>0) base.interval=n }
+      else if(key==='COUNT'){ base.count=v }
       else if(key==='UNTIL'){
         if(/^[0-9]{8}T[0-9]{6}Z$/.test(v)){
-          // convert to local input string yyyy-MM-ddTHH:mm
-          const y=+v.slice(0,4), m=+v.slice(4,6)-1, d=+v.slice(6,8), H=+v.slice(9,11), M=+v.slice(11,13), S=+v.slice(13,15);
-          const dt=new Date(Date.UTC(y,m,d,H,M,S));
-          base.until=dt.toISOString().slice(0,16);
-        } else if(/^[0-9]{8}$/.test(v)){
-          base.until=`${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}T23:59`;
+          const y=+v.slice(0,4), m=+v.slice(4,6)-1, d=+v.slice(6,8)
+          const dt=new Date(Date.UTC(y,m,d,0,0,0))
+          base.until = dt.toISOString().slice(0,10) // yyyy-MM-dd
+        } else if(/^[0-9]{8}$/.test(v)) {
+          base.until = `${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}`
         } else {
-          const dt=new Date(v); if(!isNaN(dt.getTime())) base.until=dt.toISOString().slice(0,16);
+          const dt=new Date(v); if(!isNaN(dt.getTime())) base.until=dt.toISOString().slice(0,10)
         }
       }
-    });
-    return base;
+    })
+    return base
   } catch(e){ return null }
 }
 export default function TrainingsPage(){
@@ -63,6 +62,7 @@ export default function TrainingsPage(){
   const [rosters, setRosters] = useState({}) // trainingId -> [{ userId, firstName, lastName, email, groupId, groupName, present }]
   const [bulkLoadingByTraining, setBulkLoadingByTraining] = useState({}) // trainingId -> boolean
   const [scopeDialog, setScopeDialog] = useState({ open:false, onSelect:null, allowRuleChange:false })
+  const [deleteDialog, setDeleteDialog] = useState({ open:false, training:null, chosen:null })
   const [attendanceFilterByTraining, setAttendanceFilterByTraining] = useState({}) // trainingId -> string filter
   const [reattachReset, setReattachReset] = useState(false)
   const [reattachLoading, setReattachLoading] = useState(false)
@@ -110,17 +110,23 @@ export default function TrainingsPage(){
     if (qResp) setQuestionnaires(qResp.data)
   }
   useEffect(()=>{ load() }, [])
+  // Convert a local yyyy-MM-dd to an end-of-day UTC Instant string (23:59:59 local -> UTC).
+  const localDateToEndOfDayUtcIso = (yyyyMmDd) => {
+    try {
+      if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(yyyyMmDd)) return null
+      const [y,m,d] = yyyyMmDd.split('-').map(Number)
+      // Build Date in local tz at 23:59:59.999 then convert to UTC ISO (truncate ms)
+      const dt = new Date(y, m-1, d, 23, 59, 59, 0)
+      return dt.toISOString() // full ISO; caller may trim
+    } catch(e){ return null }
+  }
   const buildRRule = () => {
     if (!form.recurrence?.enabled) return null
     const parts = []
     const interval = Math.max(1, Number(form.recurrence.interval||1))
     parts.push(`FREQ=${form.recurrence.freq}`)
     if (interval !== 1) parts.push(`INTERVAL=${interval}`)
-    if (form.recurrence.until){
-      try { const d = new Date(form.recurrence.until); const iso = d.toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z'; parts.push(`UNTIL=${iso}`) } catch(e){}
-    } else if (form.recurrence.count){
-      parts.push(`COUNT=${Math.max(1, Number(form.recurrence.count))}`)
-    }
+    // Deliberately omit UNTIL/COUNT; backend receives them explicitly via JSON (clearer, avoids dual sources)
     return parts.join(';')
   }
   const create = async () => {
@@ -129,8 +135,13 @@ export default function TrainingsPage(){
   const payload = { title: form.title, description: form.description, trainingTime: new Date(form.trainingTime).toISOString(), trainingEndTime: form.trainingEndTime ? new Date(form.trainingEndTime).toISOString() : null, preNotificationMinutes: form.preNotificationMinutes || 0, visibleToAthletes: form.visibleToAthletes, groupIds: form.groupIds||[] }
     if (rrule) {
       payload.recurrence = { rrule, timezone: form.recurrence.timezone }
-      if (form.recurrence.until) payload.recurrence.until = new Date(form.recurrence.until).toISOString()
-      else if (form.recurrence.count) payload.recurrence.count = Number(form.recurrence.count)
+      if (form.recurrence.until) {
+        const endOfDayIso = localDateToEndOfDayUtcIso(form.recurrence.until)
+        if (endOfDayIso) payload.recurrence.until = endOfDayIso
+      }
+      if (!form.recurrence.until && form.recurrence.count) {
+        payload.recurrence.count = Number(form.recurrence.count)
+      }
     }
   const { data } = await api.post('/api/trainings', payload)
   // assign groups (always send even if empty to allow clearing)
@@ -165,8 +176,13 @@ export default function TrainingsPage(){
     }
     if (rrule) {
       payload.recurrence = { rrule, timezone: form.recurrence.timezone }
-      if (form.recurrence.until) payload.recurrence.until = new Date(form.recurrence.until).toISOString()
-      else if (form.recurrence.count) payload.recurrence.count = Number(form.recurrence.count)
+      if (form.recurrence.until) {
+        const endOfDayIso = localDateToEndOfDayUtcIso(form.recurrence.until)
+        if (endOfDayIso) payload.recurrence.until = endOfDayIso
+      }
+      if (!form.recurrence.until && form.recurrence.count) {
+        payload.recurrence.count = Number(form.recurrence.count)
+      }
     }
     if (editingTraining) {
   const { data } = await api.put(`/api/trainings/${editingTraining.id}`, payload)
@@ -182,7 +198,29 @@ export default function TrainingsPage(){
     }
     setOpen(false); setEditingTraining(null); setForm(emptyForm); await load()
   }
-  const remove = async (id) => { if (!confirm('Delete training?')) return; await api.delete(`/api/trainings/${id}`); await load() }
+  const remove = async (training) => {
+    if (training.seriesId && !training.detached) {
+      setDeleteDialog({ open:true, training, chosen:null })
+      return
+    }
+    if (!confirm('Delete training?')) return
+    await api.delete(`/api/trainings/${training.id}`)
+    await load()
+  }
+  const applyDeleteScope = async () => {
+    const t = deleteDialog.training
+    if (!t) return
+    const scope = deleteDialog.chosen || 'THIS'
+    const qp = scope && scope !== 'THIS' ? `?scope=${scope}` : ''
+    try {
+      await api.delete(`/api/trainings/${t.id}${qp}`)
+      showSnackbar(scope === 'FUTURE' ? 'Deleted this and future occurrences' : 'Training deleted')
+    } catch(e){ showSnackbar('Failed to delete training') }
+    finally {
+      setDeleteDialog({ open:false, training:null, chosen:null })
+      await load()
+    }
+  }
   return (
     <Paper sx={{ p:2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb:2 }}>
@@ -255,7 +293,7 @@ export default function TrainingsPage(){
             // silently ignore for non-trainers (or optionally show a small notice)
             return
           }
-          console.log('Date clicked', dateOrStr)
+          // (debug log removed)
           // FullCalendar passes dateStr (YYYY-MM-DD) in local calendar timezone; accept either a Date or string
           let yearMonthDay = null
           if (!dateOrStr) return
@@ -383,7 +421,7 @@ export default function TrainingsPage(){
                   setForm({ title: t.title, description: t.description || '', trainingTime: local, trainingEndTime: localEnd, visibleToAthletes: t.visibleToAthletes, groupIds: (t.groups||t.groupIds||[]).map(g => typeof g==='object'? g.id : g), preQuestionnaireId: t.preQuestionnaire?.id || null, postQuestionnaireId: t.postQuestionnaire?.id || null, preNotificationMinutes: t.preNotificationMinutes || 0, recurrence: recurrenceState2 })
                   setOpen(true)
                 }}>Edit</Button>
-                <Button size="small" color="error" onClick={()=>remove(t.id)}>Delete</Button>
+                <Button size="small" color="error" onClick={()=>remove(t)}>Delete</Button>
               </>
             )}
             {hasRole('ROLE_ATHLETE') && (
@@ -507,7 +545,12 @@ export default function TrainingsPage(){
                         <TextField label="Interval" type="number" value={form.recurrence.interval} onChange={e=>setForm({...form, recurrence:{...form.recurrence, interval: Math.max(1, Number(e.target.value)||1)}})} sx={{ maxWidth:140 }} helperText="Every N" />
                       </Stack>
                       <Stack direction="row" spacing={2}>
-                        <TextField type="date" label="Until" InputLabelProps={{ shrink:true }} value={form.recurrence.until} onChange={e=>setForm({...form, recurrence:{...form.recurrence, until:e.target.value}})} helperText="Optional end date" />
+                        <div style={{ flex:1 }}>
+                          <Typography variant="caption" sx={{ mb:0.5, display:'block' }}>Until date</Typography>
+                          <TIDateInput value={form.recurrence.until || ''} onChange={(iso)=>{
+                            setForm(f=>({...f, recurrence:{...f.recurrence, until: iso || ''}}))
+                          }} helperText="Optional end date (dd/mm/yyyy)" />
+                        </div>
                         <TextField type="number" label="Count" value={form.recurrence.count} onChange={e=>setForm({...form, recurrence:{...form.recurrence, count:e.target.value}})} helperText="Optional occurrences" />
                       </Stack>
                       {!form.recurrence.until && !form.recurrence.count && (
@@ -746,8 +789,23 @@ export default function TrainingsPage(){
         </DialogContent>
         <DialogActions>
           <Button onClick={()=>{ setOpen(false); setEditingTraining(null); }}>Cancel</Button>
-          {editingTraining && <Button color="error" onClick={async ()=>{ if (!confirm('Delete training?')) return; await remove(editingTraining.id); setOpen(false); setEditingTraining(null); }}>Delete</Button>}
+          {editingTraining && <Button color="error" onClick={async ()=>{ await remove(editingTraining); /* removal handles dialog */ if (!editingTraining.seriesId || editingTraining.detached) { setOpen(false); setEditingTraining(null); } }}>Delete</Button>}
           <Button variant="contained" onClick={save}>{editingTraining ? 'Save' : 'Create'}</Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={deleteDialog.open} onClose={()=> setDeleteDialog({ open:false, training:null, chosen:null })}>
+        <DialogTitle>Delete recurring training</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb:1 }}>Choose scope for deletion of this recurring training.</Typography>
+          <Stack direction="row" spacing={1} sx={{ mb:1 }}>
+            <Button variant={!deleteDialog.chosen || deleteDialog.chosen==='THIS' ? 'contained':'outlined'} onClick={()=> setDeleteDialog(d => ({ ...d, chosen:'THIS' }))}>This only</Button>
+            <Button variant={deleteDialog.chosen==='FUTURE' ? 'contained':'outlined'} onClick={()=> setDeleteDialog(d => ({ ...d, chosen:'FUTURE' }))}>This & future</Button>
+          </Stack>
+          {deleteDialog.training?.detached && <Typography variant="caption" color="text.secondary">Detached occurrence: deleting future is equivalent to deleting only this.</Typography>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={()=> setDeleteDialog({ open:false, training:null, chosen:null })}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={applyDeleteScope}>Delete</Button>
         </DialogActions>
       </Dialog>
       <Dialog open={selectedResponseOpen} onClose={()=>{ setSelectedResponseOpen(false); setSelectedResponse(null) }} maxWidth="sm" fullWidth>

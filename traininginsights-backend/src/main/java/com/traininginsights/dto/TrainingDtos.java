@@ -16,6 +16,7 @@ public class TrainingDtos {
         public Set<GroupLite> groups;
         public Long preQuestionnaireId;
         public Long postQuestionnaireId;
+    public Integer preNotificationMinutes; // minutes before start to send pre notification
         // Recurrence summary
         public Long seriesId;
         public Integer seriesSequence;

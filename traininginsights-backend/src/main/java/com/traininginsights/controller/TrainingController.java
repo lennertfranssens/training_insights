@@ -420,6 +420,7 @@ public class TrainingController {
         dto.trainingTime = t.getTrainingTime();
     dto.trainingEndTime = t.getTrainingEndTime();
         dto.visibleToAthletes = t.isVisibleToAthletes();
+        dto.preNotificationMinutes = t.getPreNotificationMinutes();
         dto.seriesId = t.getSeriesId();
         dto.seriesSequence = t.getSeriesSequence();
         dto.detached = t.isDetached();

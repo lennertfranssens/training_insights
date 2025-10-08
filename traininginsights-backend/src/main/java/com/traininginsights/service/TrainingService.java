@@ -87,6 +87,7 @@ public class TrainingService {
         }
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public Training setQuestionnaires(Long trainingId, Long preId, Long postId){
         Training t = get(trainingId);
         if (preId != null && postId != null && preId.equals(postId)) {
@@ -94,9 +95,23 @@ public class TrainingService {
         }
         Questionnaire pre = preId != null ? qRepo.findById(preId).orElse(null) : null;
         Questionnaire post = postId != null ? qRepo.findById(postId).orElse(null) : null;
-        t.setPreQuestionnaire(pre);
-        t.setPostQuestionnaire(post);
-        return repo.save(t);
+        if (t.getSeries() != null) {
+            Long seriesId = t.getSeries().getId();
+            for (Training occ : repo.findBySeries_Id(seriesId)) {
+                boolean detached = occ.isDetached();
+                boolean hasAny = occ.getPreQuestionnaire() != null || occ.getPostQuestionnaire() != null;
+                if (detached && hasAny) continue; // preserve custom questionnaires on already customized detached occurrence
+                // For non-detached or detached without questionnaires yet, apply
+                occ.setPreQuestionnaire(pre);
+                occ.setPostQuestionnaire(post);
+                repo.save(occ);
+            }
+            return get(trainingId);
+        } else {
+            t.setPreQuestionnaire(pre);
+            t.setPostQuestionnaire(post);
+            return repo.save(t);
+        }
     }
 
     // --- Recurrence helpers (skeleton; detailed generation logic to be filled) ---

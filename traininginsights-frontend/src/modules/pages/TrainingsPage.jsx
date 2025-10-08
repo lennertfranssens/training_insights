@@ -132,7 +132,7 @@ export default function TrainingsPage(){
   const create = async () => {
     if (form.preQuestionnaireId && form.postQuestionnaireId && String(form.preQuestionnaireId) === String(form.postQuestionnaireId)) { showSnackbar('Pre and post questionnaires cannot be the same'); return }
     const rrule = buildRRule()
-  const payload = { title: form.title, description: form.description, trainingTime: new Date(form.trainingTime).toISOString(), trainingEndTime: form.trainingEndTime ? new Date(form.trainingEndTime).toISOString() : null, preNotificationMinutes: form.preNotificationMinutes || 0, visibleToAthletes: form.visibleToAthletes, groupIds: form.groupIds||[] }
+  const payload = { title: form.title, description: form.description, trainingTime: new Date(form.trainingTime).toISOString(), trainingEndTime: form.trainingEndTime ? new Date(form.trainingEndTime).toISOString() : null, preNotificationMinutes: form.preNotificationMinutes || 0, visibleToAthletes: form.visibleToAthletes, groupIds: form.groupIds||[], preQuestionnaireId: form.preQuestionnaireId || null, postQuestionnaireId: form.postQuestionnaireId || null }
     if (rrule) {
       payload.recurrence = { rrule, timezone: form.recurrence.timezone }
       if (form.recurrence.until) {
@@ -150,7 +150,11 @@ export default function TrainingsPage(){
       const fd = new FormData(); fd.append('file', fileToUpload);
       await api.post(`/api/trainings/${data.id}/attachments`, fd)
     }
-    if (form.preQuestionnaireId || form.postQuestionnaireId) { await api.post(`/api/trainings/${data.id}/set-questionnaires?preId=${form.preQuestionnaireId||''}&postId=${form.postQuestionnaireId||''}`) }
+    // If questionnaire IDs were provided with initial payload, backend already persisted them.
+    if (!payload.preQuestionnaireId && !payload.postQuestionnaireId && (form.preQuestionnaireId || form.postQuestionnaireId)) {
+      // fallback: if omitted (unlikely) still call endpoint (legacy path)
+      await api.post(`/api/trainings/${data.id}/set-questionnaires?preId=${form.preQuestionnaireId||''}&postId=${form.postQuestionnaireId||''}`)
+    }
     setOpen(false); setEditingTraining(null); setForm(emptyForm); await load()
   }
 
@@ -164,7 +168,7 @@ export default function TrainingsPage(){
       if (!(end > start)) { setTimeError('End time must be after start time'); return }
     }
     const rrule = buildRRule()
-  const payload = { title: form.title, description: form.description, trainingTime: new Date(form.trainingTime).toISOString(), trainingEndTime: form.trainingEndTime ? new Date(form.trainingEndTime).toISOString() : null, preNotificationMinutes: form.preNotificationMinutes || 0, visibleToAthletes: form.visibleToAthletes, groupIds: form.groupIds||[] }
+  const payload = { title: form.title, description: form.description, trainingTime: new Date(form.trainingTime).toISOString(), trainingEndTime: form.trainingEndTime ? new Date(form.trainingEndTime).toISOString() : null, preNotificationMinutes: form.preNotificationMinutes || 0, visibleToAthletes: form.visibleToAthletes, groupIds: form.groupIds||[], preQuestionnaireId: form.preQuestionnaireId || null, postQuestionnaireId: form.postQuestionnaireId || null }
     let scopeChoice = null
     if (editingTraining?.seriesId && !editingTraining?.detached) {
       // open dialog for scope selection
@@ -187,7 +191,10 @@ export default function TrainingsPage(){
     if (editingTraining) {
   const { data } = await api.put(`/api/trainings/${editingTraining.id}`, payload)
   await api.post(`/api/trainings/${editingTraining.id}/assign-groups`, { groupIds: form.groupIds||[] })
-      if (form.preQuestionnaireId || form.postQuestionnaireId) { await api.post(`/api/trainings/${editingTraining.id}/set-questionnaires?preId=${form.preQuestionnaireId||''}&postId=${form.postQuestionnaireId||''}`) }
+      if (!payload.preQuestionnaireId && !payload.postQuestionnaireId && (form.preQuestionnaireId || form.postQuestionnaireId)) {
+        // Only call legacy endpoint if we somehow excluded them from update payload
+        await api.post(`/api/trainings/${editingTraining.id}/set-questionnaires?preId=${form.preQuestionnaireId||''}&postId=${form.postQuestionnaireId||''}`)
+      }
       // if a new file was chosen during edit, upload it
       if (fileToUpload) {
         const fd = new FormData(); fd.append('file', fileToUpload);
@@ -340,7 +347,7 @@ export default function TrainingsPage(){
               const localEnd = endDate && endTime ? `${endDate}T${endTime}` : ''
               const rec = (t.recurrence && t.recurrence.rrule) ? parseRRule(t.recurrence.rrule) : (t.recurrenceSummary?.rrule ? parseRRule(t.recurrenceSummary.rrule) : null)
               const recurrenceState = rec ? { ...rec, enabled:true } : { enabled:false, freq:'WEEKLY', interval:1, count:'', until:'', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
-              setForm({ title: t.title, description: t.description || '', trainingTime: t.trainingTime, trainingEndTime: t.trainingEndTime || '', visibleToAthletes: t.visibleToAthletes, groupIds: (t.groups||t.groupIds||[]).map(g => typeof g==='object'? g.id : g), preQuestionnaireId: t.preQuestionnaire?.id || null, postQuestionnaireId: t.postQuestionnaire?.id || null, preNotificationMinutes: t.preNotificationMinutes || 0, recurrence: recurrenceState })
+              setForm({ title: t.title, description: t.description || '', trainingTime: t.trainingTime, trainingEndTime: t.trainingEndTime || '', visibleToAthletes: t.visibleToAthletes, groupIds: (t.groups||t.groupIds||[]).map(g => typeof g==='object'? g.id : g), preQuestionnaireId: (t.preQuestionnaire?.id)||t.preQuestionnaireId||null, postQuestionnaireId: (t.postQuestionnaire?.id)||t.postQuestionnaireId||null, preNotificationMinutes: t.preNotificationMinutes || 0, recurrence: recurrenceState })
               setOpen(true)
               return
             }
@@ -418,7 +425,7 @@ export default function TrainingsPage(){
                   const localEnd = endDt ? new Date(endDt.getTime() - endDt.getTimezoneOffset()*60000).toISOString().slice(0,16) : ''
                   const rec2 = (t.recurrence && t.recurrence.rrule) ? parseRRule(t.recurrence.rrule) : (t.recurrenceSummary?.rrule ? parseRRule(t.recurrenceSummary.rrule) : null)
                   const recurrenceState2 = rec2 ? { ...rec2, enabled:true } : { enabled:false, freq:'WEEKLY', interval:1, count:'', until:'', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
-                  setForm({ title: t.title, description: t.description || '', trainingTime: local, trainingEndTime: localEnd, visibleToAthletes: t.visibleToAthletes, groupIds: (t.groups||t.groupIds||[]).map(g => typeof g==='object'? g.id : g), preQuestionnaireId: t.preQuestionnaire?.id || null, postQuestionnaireId: t.postQuestionnaire?.id || null, preNotificationMinutes: t.preNotificationMinutes || 0, recurrence: recurrenceState2 })
+                  setForm({ title: t.title, description: t.description || '', trainingTime: local, trainingEndTime: localEnd, visibleToAthletes: t.visibleToAthletes, groupIds: (t.groups||t.groupIds||[]).map(g => typeof g==='object'? g.id : g), preQuestionnaireId: (t.preQuestionnaire?.id)||t.preQuestionnaireId||null, postQuestionnaireId: (t.postQuestionnaire?.id)||t.postQuestionnaireId||null, preNotificationMinutes: t.preNotificationMinutes || 0, recurrence: recurrenceState2 })
                   setOpen(true)
                 }}>Edit</Button>
                 <Button size="small" color="error" onClick={()=>remove(t)}>Delete</Button>

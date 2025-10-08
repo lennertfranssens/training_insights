@@ -6,10 +6,10 @@ import com.traininginsights.dto.TrainingDtos;
 import com.traininginsights.model.QuestionnaireResponse;
 import com.traininginsights.model.Training;
 import com.traininginsights.model.TrainingSeries;
-import com.traininginsights.model.Questionnaire;
 import com.traininginsights.model.Group;
 import com.traininginsights.model.User;
 import com.traininginsights.service.QuestionnaireResponseService;
+import com.traininginsights.repository.QuestionnaireRepository;
 import com.traininginsights.service.TrainingService;
 import com.traininginsights.service.TrainingAttendanceService;
 import com.traininginsights.repository.UserRepository;
@@ -48,8 +48,9 @@ public class TrainingController {
     private final QuestionnaireResponseService responseService;
     private final String uploadsDir;
     private final TrainingAttendanceService attendanceService;
+    private final QuestionnaireRepository questionnaireRepository;
 
-    public TrainingController(TrainingService service, UserRepository userRepository, AttachmentRepository attachmentRepository, QuestionnaireResponseService responseService, TrainingAttendanceService attendanceService, @Value("${app.uploadsDir:uploads}") String uploadsDir){ this.service = service; this.userRepository = userRepository; this.attachmentRepository = attachmentRepository; this.responseService = responseService; this.attendanceService = attendanceService; this.uploadsDir = uploadsDir; }
+    public TrainingController(TrainingService service, UserRepository userRepository, AttachmentRepository attachmentRepository, QuestionnaireResponseService responseService, TrainingAttendanceService attendanceService, QuestionnaireRepository questionnaireRepository, @Value("${app.uploadsDir:uploads}") String uploadsDir){ this.service = service; this.userRepository = userRepository; this.attachmentRepository = attachmentRepository; this.responseService = responseService; this.attendanceService = attendanceService; this.questionnaireRepository = questionnaireRepository; this.uploadsDir = uploadsDir; }
 
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN','ATHLETE')")
     @GetMapping public java.util.List<com.traininginsights.dto.TrainingDtos.TrainingDTO> all(Authentication auth){
@@ -137,6 +138,7 @@ public class TrainingController {
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
     @PostMapping
     public com.traininginsights.dto.TrainingDtos.TrainingDTO create(Authentication auth, @RequestBody TrainingDtos.TrainingCreateRequest req){
+        System.out.println("[TrainingController#create] preQuestionnaireId=" + req.preQuestionnaireId + ", postQuestionnaireId=" + req.postQuestionnaireId);
         if (req.trainingEndTime != null && !req.trainingEndTime.isAfter(req.trainingTime)){
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Training end time must be after start time");
         }
@@ -151,8 +153,13 @@ public class TrainingController {
         // set creator
         var creator = userRepository.findByEmailIgnoreCase(auth.getName()).orElse(null);
         if (creator != null) base.setCreatedBy(creator);
-        if (req.preQuestionnaireId != null) { try { base.setPreQuestionnaire(new com.traininginsights.model.Questionnaire(){ { setId(req.preQuestionnaireId);} }); } catch (Exception ignored){} }
-        if (req.postQuestionnaireId != null) { try { base.setPostQuestionnaire(new com.traininginsights.model.Questionnaire(){ { setId(req.postQuestionnaireId);} }); } catch (Exception ignored){} }
+        if (req.preQuestionnaireId != null) {
+            base.setPreQuestionnaire(questionnaireRepository.findById(req.preQuestionnaireId).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid preQuestionnaireId")));
+        }
+        if (req.postQuestionnaireId != null) {
+            if (req.postQuestionnaireId.equals(req.preQuestionnaireId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pre and post questionnaires cannot be the same");
+            base.setPostQuestionnaire(questionnaireRepository.findById(req.postQuestionnaireId).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid postQuestionnaireId")));
+        }
         if (req.groupIds != null && !req.groupIds.isEmpty()) {
             // Deferred proper group fetch: will rely on assign endpoint or enhancement later
         }
@@ -354,6 +361,18 @@ public class TrainingController {
                     t.setDescription(req.description);
                     t.setVisibleToAthletes(req.visibleToAthletes);
                     t.setPreNotificationMinutes(req.preNotificationMinutes);
+                    // Propagate questionnaire changes (was previously omitted)
+                    if (req.preQuestionnaireId != null) {
+                        t.setPreQuestionnaire(questionnaireRepository.findById(req.preQuestionnaireId).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid preQuestionnaireId")));
+                    } else if (req.preQuestionnaireId == null) {
+                        t.setPreQuestionnaire(null);
+                    }
+                    if (req.postQuestionnaireId != null) {
+                        if (req.postQuestionnaireId.equals(req.preQuestionnaireId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pre and post questionnaires cannot be the same");
+                        t.setPostQuestionnaire(questionnaireRepository.findById(req.postQuestionnaireId).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid postQuestionnaireId")));
+                    } else if (req.postQuestionnaireId == null) {
+                        t.setPostQuestionnaire(null);
+                    }
                     // shift start
                     if (!startDelta.isZero()){
                         t.setTrainingTime(t.getTrainingTime().plusSeconds(startDelta.getSeconds()));
@@ -384,10 +403,11 @@ public class TrainingController {
         existing.setPreNotificationMinutes(req.preNotificationMinutes);
         // Persist questionnaire changes (previously omitted)
         if (req.preQuestionnaireId != null){
-            Questionnaire q = new Questionnaire(); q.setId(req.preQuestionnaireId); existing.setPreQuestionnaire(q);
+            existing.setPreQuestionnaire(questionnaireRepository.findById(req.preQuestionnaireId).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid preQuestionnaireId")));
         } else { existing.setPreQuestionnaire(null); }
         if (req.postQuestionnaireId != null){
-            Questionnaire q2 = new Questionnaire(); q2.setId(req.postQuestionnaireId); existing.setPostQuestionnaire(q2);
+            if (req.postQuestionnaireId.equals(req.preQuestionnaireId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pre and post questionnaires cannot be the same");
+            existing.setPostQuestionnaire(questionnaireRepository.findById(req.postQuestionnaireId).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid postQuestionnaireId")));
         } else { existing.setPostQuestionnaire(null); }
     }
 
@@ -439,7 +459,7 @@ public class TrainingController {
     // Lightweight reschedule: only change start/end times; preserve other fields
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
     @PatchMapping("/{id}/reschedule")
-    public Training reschedule(@PathVariable Long id, @RequestBody java.util.Map<String,Object> body){
+    public TrainingDtos.TrainingDTO reschedule(@PathVariable Long id, @RequestBody java.util.Map<String,Object> body){
         Training existing = service.get(id);
         Object startObj = body.get("trainingTime");
         Object endObj = body.get("trainingEndTime");
@@ -461,7 +481,7 @@ public class TrainingController {
         } else {
             existing.setNotificationTime(null);
         }
-        return service.save(existing);
+    return toDTO(service.save(existing));
     }
 
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
@@ -713,23 +733,25 @@ public class TrainingController {
 
     @PreAuthorize("hasRole('TRAINER')")
     @GetMapping("/mine")
-    public List<Training> myTrainings(Authentication auth){
+    public List<TrainingDtos.TrainingDTO> myTrainings(Authentication auth){
         // find trainings where authenticated trainer is assigned to one of the training groups
         return service.all().stream()
                 .filter(t -> t.getGroups() != null && t.getGroups().stream().anyMatch(g -> g.getTrainers().stream().anyMatch(u -> u.getEmail().equalsIgnoreCase(auth.getName()))))
+                .map(this::toDTO)
                 .toList();
     }
 
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
     @PostMapping("/{id}/assign-groups")
-    public Training assign(@PathVariable Long id, @RequestBody TrainingDtos.AssignGroupsRequest req){
-        return service.assignGroups(id, req.groupIds);
+    public TrainingDtos.TrainingDTO assign(@PathVariable Long id, @RequestBody TrainingDtos.AssignGroupsRequest req){
+        return toDTO(service.assignGroups(id, req.groupIds));
     }
 
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")
     @PostMapping("/{id}/set-questionnaires")
-    public Training setQuestionnaires(@PathVariable Long id, @RequestParam(required=false) Long preId, @RequestParam(required=false) Long postId){
-        return service.setQuestionnaires(id, preId, postId);
+    public TrainingDtos.TrainingDTO setQuestionnaires(@PathVariable Long id, @RequestParam(required=false) Long preId, @RequestParam(required=false) Long postId){
+        System.out.println("[TrainingController#setQuestionnaires] id="+id+" preId="+preId+" postId="+postId);
+        return toDTO(service.setQuestionnaires(id, preId, postId));
     }
 
     @PreAuthorize("hasAnyRole('TRAINER','ADMIN','SUPERADMIN')")

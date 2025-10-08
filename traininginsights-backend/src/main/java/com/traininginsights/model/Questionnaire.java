@@ -1,6 +1,7 @@
 package com.traininginsights.model;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "questionnaires")
@@ -12,14 +13,15 @@ public class Questionnaire {
     @Column(nullable = false)
     private String title;
 
-    @Lob
+    // Store JSON as standard TEXT (avoid PostgreSQL Large Object API triggered by @Lob on some drivers)
     @Column(columnDefinition = "TEXT")
     private String structure; // JSON definition
 
     private boolean daily = false;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "creator_id")
+    @JsonIgnore // prevent lazy proxy serialization and large nested graphs
     private User creator;
 
     public Long getId() { return id; }

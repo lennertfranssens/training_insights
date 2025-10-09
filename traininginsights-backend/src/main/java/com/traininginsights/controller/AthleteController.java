@@ -141,10 +141,12 @@ public class AthleteController {
         }
         // include current athlete presence (if any)
         var taOpt = attendanceService.byTraining(t).stream().filter(a -> a.getUser().getId().equals(athlete.getId())).findFirst();
-        res.put("myPresence", taOpt.map(a -> Map.of(
-                "present", a.isPresent(),
-                "updatedAt", a.getUpdatedAt()
-        )).orElse(null));
+    res.put("myPresence", taOpt.map(a -> {
+        java.util.Map<String,Object> m = new java.util.HashMap<>();
+        m.put("present", a.isPresent());
+        if (a.getUpdatedAt() != null) m.put("updatedAt", a.getUpdatedAt());
+        return m;
+    }).orElse(null));
         return res;
     }
 
@@ -158,9 +160,13 @@ public class AthleteController {
         if (g == null || t.getGroups() == null || t.getGroups().stream().noneMatch(gr -> gr.getId() != null && gr.getId().equals(g.getId()))){
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not allowed to access this training");
         }
-        var ta = attendanceService.byTraining(t).stream().filter(a -> a.getUser().getId().equals(athlete.getId())).findFirst().orElse(null);
-        boolean present = ta != null && ta.isPresent();
-        return Map.of("trainingId", t.getId(), "present", present, "updatedAt", ta != null ? ta.getUpdatedAt() : null);
+    var ta = attendanceService.byTraining(t).stream().filter(a -> a.getUser().getId().equals(athlete.getId())).findFirst().orElse(null);
+    boolean present = ta != null && ta.isPresent();
+    java.util.Map<String,Object> out = new java.util.HashMap<>();
+    out.put("trainingId", t.getId());
+    out.put("present", present);
+    if (ta != null) out.put("updatedAt", ta.getUpdatedAt());
+    return out;
     }
 
     @PostMapping("/trainings/{id}/presence")
@@ -194,7 +200,12 @@ public class AthleteController {
         if (pv == null) {
             // clearing presence is currently not implemented (attendance deletion). Keep simple: treat null as no-op and return current.
             var current = attendanceService.byTraining(t).stream().filter(a -> a.getUser().getId().equals(athlete.getId())).findFirst().orElse(null);
-            return Map.of("trainingId", t.getId(), "present", current != null && current.isPresent(), "updatedAt", current != null ? current.getUpdatedAt() : null, "cleared", false);
+            java.util.Map<String,Object> out = new java.util.HashMap<>();
+            out.put("trainingId", t.getId());
+            out.put("present", current != null && current.isPresent());
+            if (current != null && current.getUpdatedAt() != null) out.put("updatedAt", current.getUpdatedAt());
+            out.put("cleared", false);
+            return out;
         }
         boolean present = Boolean.parseBoolean(String.valueOf(pv));
         var ta = attendanceService.setPresence(t, athlete, present);

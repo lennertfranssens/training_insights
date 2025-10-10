@@ -13,11 +13,11 @@ public class PushConfigController {
     private final PushConfigRepository repo;
     public PushConfigController(PushConfigRepository repo){ this.repo = repo; }
 
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    @PreAuthorize("hasRole('SUPERADMIN')")
     @GetMapping
     public PushConfig get(){ return repo.findTopByOrderByIdDesc().orElse(null); }
 
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    @PreAuthorize("hasRole('SUPERADMIN')")
     @PostMapping
     public PushConfig set(@RequestBody Map<String,String> body){
         String pub = body.get("vapidPublic");

@@ -147,7 +147,7 @@ export default function App(){
             return <UsersPage title={title} defaultRole="ALL" />
           })()}</AdminOnly>} />
           <Route path="club-members" element={<AdminOnly><ClubMembersPage /></AdminOnly>} />
-          <Route path="push-config" element={<AdminOnly><PushConfigAdmin /></AdminOnly>} />
+          <Route path="push-config" element={<SuperAdminOnly><PushConfigAdmin /></SuperAdminOnly>} />
           <Route path="smtp" element={<AdminOnly><AdminSmtpRoute /></AdminOnly>} />
           <Route path="seasons" element={<AdminOnly><SeasonsPage /></AdminOnly>} />
           {/* Trainer */}

@@ -42,17 +42,16 @@ public class PushService {
     }
 
     private void refreshFromDbIfMissing(){
-        if ((this.vapidPublic == null || this.vapidPublic.isBlank()) || (this.vapidPrivate == null || this.vapidPrivate.isBlank()) || (this.vapidSubject == null || this.vapidSubject.isBlank())){
-            try {
-                var opt = configRepo.findTopByOrderByIdDesc();
-                if (opt.isPresent()){
-                    PushConfig c = opt.get();
-                    if (this.vapidPublic == null || this.vapidPublic.isBlank()) this.vapidPublic = c.getVapidPublic();
-                    if (this.vapidPrivate == null || this.vapidPrivate.isBlank()) this.vapidPrivate = c.getVapidPrivate();
-                    if (this.vapidSubject == null || this.vapidSubject.isBlank()) this.vapidSubject = c.getSubject();
-                }
-            } catch (Exception ignored){}
-        }
+        // Prefer DB as the single source of truth when present
+        try {
+            var opt = configRepo.findTopByOrderByIdDesc();
+            if (opt.isPresent()){
+                PushConfig c = opt.get();
+                this.vapidPublic = c.getVapidPublic();
+                this.vapidPrivate = c.getVapidPrivate();
+                this.vapidSubject = (c.getSubject()==null || c.getSubject().isBlank()) ? this.vapidSubject : c.getSubject();
+            }
+        } catch (Exception ignored){}
     }
 
     public PushSubscription save(PushSubscription s){ return repo.save(s); }

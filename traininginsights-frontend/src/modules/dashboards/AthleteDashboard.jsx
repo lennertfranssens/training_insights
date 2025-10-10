@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { formatIsoDateTime, formatIsoDate } from '../common/dateUtils'
 import api from '../api/client'
-import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Chip, Box, Tabs, Tab } from '@mui/material'
+import { Paper, Typography, Stack, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Chip, Box, Tabs, Tab, Pagination } from '@mui/material'
 import { useSnackbar } from '../common/SnackbarProvider'
 import QuestionnaireForm from '../common/QuestionnaireForm'
 import TrainingsListCalendar from '../common/TrainingsListCalendar'
@@ -26,6 +26,8 @@ export default function AthleteDashboard({ initialSection }){
   const [responseViewValues, setResponseViewValues] = useState({})
   const [historyOpen, setHistoryOpen] = useState(false)
   const [attachments, setAttachments] = useState({})
+  // pagination for pending questionnaires
+  const [pendingPage, setPendingPage] = useState(1)
   const [presenceSaving, setPresenceSaving] = useState(false)
   const [presenceStatus, setPresenceStatus] = useState(null) // { present: bool, updatedAt }
   const [presenceMap, setPresenceMap] = useState({}) // trainingId -> { present, updatedAt }
@@ -73,6 +75,11 @@ export default function AthleteDashboard({ initialSection }){
     } catch(e){}
   }
   useEffect(()=>{ load() }, [trainingRange])
+  // keep current page within bounds when pending list changes
+  useEffect(()=>{
+    const total = Math.max(1, Math.ceil(((pending||[]).length)/10))
+    if (pendingPage > total) setPendingPage(total)
+  }, [pending])
   const { showSnackbar } = useSnackbar()
 
   // One-click enable push for athletes (don't auto-subscribe on page load)
@@ -271,46 +278,8 @@ export default function AthleteDashboard({ initialSection }){
       </Box>
 
       <Box hidden={tab !== 1}>
+        {/* Daily Check-in first */}
         <Paper sx={{ p:2, mb:2 }}>
-          <Typography variant="h6" sx={{ mb:2 }}>Pending Questionnaires</Typography>
-          {(() => {
-            if (!pending || pending.length === 0) return <Typography variant="body2">No pending questionnaires</Typography>
-            const byT = {}
-            pending.forEach(item => { const k = String(item.trainingId); if (!byT[k]) byT[k] = []; byT[k].push(item) })
-            // order trainings by training time ascending (nearest first)
-            const keys = Object.keys(byT).sort((a,b)=>{
-              const ta = trainings.find(x=>String(x.id)===a); const tb = trainings.find(x=>String(x.id)===b)
-              const at = ta?.trainingTime ? new Date(ta.trainingTime).getTime() : 0
-              const bt = tb?.trainingTime ? new Date(tb.trainingTime).getTime() : 0
-              return at - bt
-            })
-            return (
-              <Stack spacing={2}>
-                {keys.map(k => {
-                  const t = trainings.find(x=>String(x.id)===k)
-                  const title = t ? t.title : `Training ${k}`
-                  const date = t?.trainingTime ? formatIsoDateTime(t.trainingTime) : ''
-                  return (
-                    <Paper key={k} sx={{ p:2 }}>
-                      <Typography variant="subtitle1">{title} {date ? `— ${date}` : ''}</Typography>
-                      <Stack spacing={1} sx={{ mt:1 }}>
-                        {byT[k].map(item => (
-                          <div key={`${item.trainingId}-${item.questionnaireId}-${item.type}`} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                            <div>
-                              <Typography variant="body2">{item.type} — {allQuestionnaires.find(q=>q.id===item.questionnaireId)?.title || `Q ${item.questionnaireId}`}</Typography>
-                            </div>
-                            <Button size="small" variant="contained" onClick={()=>openQuestionnaire(item.trainingId, item.questionnaireId, item.type)}>Fill</Button>
-                          </div>
-                        ))}
-                      </Stack>
-                    </Paper>
-                  )
-                })}
-              </Stack>
-            )
-          })()}
-        </Paper>
-        <Paper sx={{ p:2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb:1 }}>
             <Typography variant="h6">Daily Check-in</Typography>
             <Button size="small" onClick={()=>setHistoryOpen(true)}>History</Button>
@@ -324,6 +293,50 @@ export default function AthleteDashboard({ initialSection }){
                   {dailyList.map(q => <MenuItem key={q.id} value={q.id}>{q.title}</MenuItem>)}
                 </TextField>
                 <Button variant="contained" disabled={!dailyQId} onClick={()=>{ if (dailyQId) openQuestionnaire(null, dailyQId, 'DAILY') }}>Open</Button>
+              </Stack>
+            )
+          })()}
+        </Paper>
+        {/* Pending Questionnaires with pagination */}
+        <Paper sx={{ p:2 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb:2 }}>
+            <Typography variant="h6">Pending Questionnaires</Typography>
+            {pending && pending.length > 10 && (
+              <Pagination count={Math.max(1, Math.ceil(pending.length/10))} page={pendingPage} onChange={(e,v)=>setPendingPage(v)} size="small" />
+            )}
+          </Stack>
+          {(() => {
+            if (!pending || pending.length === 0) return <Typography variant="body2">No pending questionnaires</Typography>
+            // Enrich with training title/time for ordering
+            const enriched = (pending||[]).map(item => {
+              const t = trainings.find(x=>String(x.id)===String(item.trainingId))
+              const time = t?.trainingTime ? new Date(t.trainingTime).getTime() : 0
+              return {
+                ...item,
+                trainingTime: time,
+                trainingTitle: t ? t.title : `Training ${item.trainingId}`,
+                trainingDateStr: t?.trainingTime ? formatIsoDateTime(t.trainingTime) : ''
+              }
+            }).sort((a,b)=> a.trainingTime - b.trainingTime)
+            const total = Math.max(1, Math.ceil(enriched.length/10))
+            const page = Math.min(pendingPage, total)
+            const slice = enriched.slice((page-1)*10, (page-1)*10 + 10)
+            return (
+              <Stack spacing={1}>
+                {slice.map(item => (
+                  <Paper key={`${item.trainingId}-${item.questionnaireId}-${item.type}`} sx={{ p:1.5, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <Box sx={{ minWidth:0 }}>
+                      <Typography variant="subtitle2" noWrap>{item.trainingTitle}{item.trainingDateStr ? ` — ${item.trainingDateStr}` : ''}</Typography>
+                      <Typography variant="body2" color="text.secondary" noWrap>{item.type} — {allQuestionnaires.find(q=>q.id===item.questionnaireId)?.title || `Q ${item.questionnaireId}`}</Typography>
+                    </Box>
+                    <Button size="small" variant="contained" onClick={()=>openQuestionnaire(item.trainingId, item.questionnaireId, item.type)}>Fill</Button>
+                  </Paper>
+                ))}
+                {enriched.length > 10 && (
+                  <Box sx={{ display:'flex', justifyContent:'flex-end', mt:1 }}>
+                    <Pagination count={total} page={page} onChange={(e,v)=>setPendingPage(v)} size="small" />
+                  </Box>
+                )}
               </Stack>
             )
           })()}

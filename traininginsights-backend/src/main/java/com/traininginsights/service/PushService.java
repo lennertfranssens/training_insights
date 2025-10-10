@@ -90,16 +90,21 @@ public class PushService {
 
             Notification notification = new Notification(sub, payload == null ? "" : payload);
             var resp = webPush.send(notification);
+            String host = null;
+            try {
+                java.net.URI endpointUri = java.net.URI.create(s.getEndpoint());
+                host = endpointUri.getHost();
+            } catch (Exception ignored) {}
             Integer code = null;
             if (resp != null) {
                 code = resp.getStatusLine().getStatusCode();
                 if (code == 404 || code == 410) {
                     // subscription is gone; clean up
                     try { repo.deleteById(s.getId()); } catch (Exception ignored) {}
-                    System.out.println("[PushService] Removed expired subscription id="+s.getId()+" status="+code);
+                    System.out.println("[PushService] Removed expired subscription id="+s.getId()+" status="+code+" host="+host);
                 }
             }
-            System.out.println("[PushService] Sent web-push to subscription id="+s.getId());
+            System.out.println("[PushService] Push result subId="+s.getId()+" host="+host+" status="+(code==null?"(none)":code));
             return code == null ? 0 : code;
         } catch (Exception e){
             System.out.println("[PushService] Error sending push notification to subscription id="+s.getId()+" : " + e.getMessage());

@@ -167,4 +167,14 @@ public class PushService {
         refreshFromDbIfMissing();
         return vapidPublic == null ? null : vapidPublic.trim();
     }
+
+    public String getVapidSubject(){
+        refreshFromDbIfMissing();
+        return vapidSubject == null ? null : vapidSubject.trim();
+    }
+
+    public boolean hasVapidPrivate(){
+        refreshFromDbIfMissing();
+        return vapidPrivate != null && !vapidPrivate.isBlank();
+    }
 }

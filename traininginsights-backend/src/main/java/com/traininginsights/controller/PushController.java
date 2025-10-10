@@ -55,6 +55,30 @@ public class PushController {
     @GetMapping("/vapid-public")
     public String vapidPublic(){ return pushService.getVapidPublic(); }
 
+    // Diagnostics: show VAPID subject, whether private is configured, and the expected audience for a given subscription id
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    @GetMapping("/diag/{id}")
+    public Map<String, Object> diag(@PathVariable Long id){
+        Map<String,Object> out = new HashMap<>();
+        out.put("vapidPublic", pushService.getVapidPublic());
+        out.put("vapidSubject", pushService.getVapidSubject());
+        out.put("hasPrivate", pushService.hasVapidPrivate());
+        String audience = null, host = null;
+        try {
+            var sub = repo.findById(id).orElse(null);
+            if (sub != null && sub.getEndpoint() != null){
+                java.net.URI u = java.net.URI.create(sub.getEndpoint());
+                host = u.getHost();
+                // Per spec, audience is the origin of the push service (scheme + host)
+                String scheme = (u.getScheme()==null?"https":u.getScheme());
+                audience = scheme + "://" + host;
+            }
+        } catch (Exception ignored){}
+        out.put("endpointHost", host);
+        out.put("audience", audience);
+        return out;
+    }
+
     // for admin/testing: list subscriptions for current user
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/my")

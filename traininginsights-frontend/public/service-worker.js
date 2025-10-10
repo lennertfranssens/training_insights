@@ -9,11 +9,13 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('push', function(event) {
+  try { console.log('[SW] push received at', new Date().toISOString(), 'hasData=', !!event.data); } catch(e) {}
   let title = 'TrainingInsights';
   let body = 'You have a notification';
   try {
     if (event.data) {
       const text = event.data.text() || '';
+      try { console.log('[SW] payload length', text.length); } catch(e) {}
       // Try JSON first: { title, body, url }
       try {
         const obj = JSON.parse(text);
@@ -46,14 +48,21 @@ self.addEventListener('push', function(event) {
   const options = {
     body,
     renotify: true,
-    tag: 'traininginsights-general',
+    // unique tag per event to avoid coalescing
+    tag: 'traininginsights-' + Date.now(),
     timestamp: Date.now(),
+    requireInteraction: true,
     data: { url: (event.notificationDataUrl || '/dashboard/notifications') }
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    self.registration.showNotification(title, options).catch(err => {
+      try { console.error('[SW] showNotification failed', err); } catch(e) {}
+    })
+  );
 });
 
 self.addEventListener('notificationclick', function(event) {
+  try { console.log('[SW] notificationclick', event.notification && event.notification.data); } catch(e) {}
   event.notification.close();
   const targetUrl = (event.notification && event.notification.data && event.notification.data.url) || '/dashboard/notifications';
   event.waitUntil(

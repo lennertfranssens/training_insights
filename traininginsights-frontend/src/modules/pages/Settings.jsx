@@ -173,6 +173,7 @@ export default function Settings(){
                         </Box>
                       </Box>
                       <div>
+                        <Button size="small" onClick={async ()=>{ try { const { data } = await api.post(`/api/push/test/${s.id}`); showSnackbar(data.sent===1? 'Test sent to this device' : 'Failed to send to this device', { duration: 5000 }); } catch(e){ showSnackbar('Failed to send test', { duration: 5000 }) } }} sx={{ mr:1 }}>Test</Button>
                         <Button size="small" onClick={()=>unsubscribe(s.id)}>Unsubscribe</Button>
                       </div>
                     </Box>

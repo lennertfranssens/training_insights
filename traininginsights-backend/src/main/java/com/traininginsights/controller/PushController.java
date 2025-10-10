@@ -86,4 +86,33 @@ public class PushController {
         res.put("sent", sent);
         return res;
     }
+
+    // Send a test push to a specific subscription (owned by current user)
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/test/{id}")
+    public Map<String, Object> testPushOne(@PathVariable Long id){
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        User u = userRepository.findByEmailIgnoreCase(email).orElseThrow();
+        var opt = repo.findById(id);
+        int sent = 0;
+        if (opt.isPresent()){
+            PushSubscription s = opt.get();
+            // ensure ownership
+            if (s.getUser() != null && s.getUser().getId().equals(u.getId())){
+                try {
+                    pushService.sendNotification(
+                            s,
+                            "TrainingInsights test",
+                            "Test sent to this specific device.",
+                            "/"
+                    );
+                    sent = 1;
+                } catch (Exception ignored) {}
+            }
+        }
+        Map<String, Object> res = new HashMap<>();
+        res.put("sent", sent);
+        res.put("id", id);
+        return res;
+    }
 }

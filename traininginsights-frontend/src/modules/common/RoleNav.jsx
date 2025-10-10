@@ -14,6 +14,7 @@ export function getNavItems(roles = []){
       { label: 'Users', to: '/dashboard/users' },
       { label: 'Backup', to: '/dashboard/backup' },
       { label: 'Base URL', to: '/dashboard/super/base-url' },
+      { label: 'Push Config', to: '/dashboard/push-config' },
     )
   }
 
@@ -25,7 +26,6 @@ export function getNavItems(roles = []){
       { label: 'Athletes', to: '/dashboard/athletes' },
       { label: 'Users', to: '/dashboard/users' },
       { label: 'Club Members', to: '/dashboard/club-members' },
-      { label: 'Push Config', to: '/dashboard/push-config' },
       { label: 'SMTP Settings', to: '/dashboard/smtp' },
       { label: 'Seasons', to: '/dashboard/seasons' },
       { label: 'Notifications', to: '/dashboard/notifications' },

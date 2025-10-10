@@ -59,16 +59,16 @@ public class PushService {
     public void delete(Long id){ repo.deleteById(id); }
 
     /**
-     * Send a web-push notification using the web-push library when VAPID keys are configured.
-     * If VAPID keys are missing or sending fails, fall back to logging.
+     * Core sender that returns an HTTP-like status code for diagnostics.
+     * Returns null if VAPID keys are missing (logged-only), -1 on exception, or the provider's status code when available.
      */
-    public void sendNotification(PushSubscription s, String payload){
+    public Integer sendNotificationWithStatus(PushSubscription s, String payload){
         try {
             // attempt to lazily load keys if missing
             refreshFromDbIfMissing();
             if (vapidPublic == null || vapidPublic.isBlank() || vapidPrivate == null || vapidPrivate.isBlank()){
                 System.out.println("[PushService] VAPID keys not configured; logging notification instead. endpoint="+s.getEndpoint()+" payload="+payload);
-                return;
+                return null; // indicates log-only
             }
 
             // parse keys JSON (expects {"p256dh":"...","auth":"..."})
@@ -77,7 +77,7 @@ public class PushService {
             String auth = node.has("auth") ? node.get("auth").asText() : null;
             if (p256dh == null || auth == null) {
                 System.out.println("[PushService] Invalid subscription keys for subscription id="+s.getId());
-                return;
+                return -1;
             }
 
             Subscription.Keys keys = new Subscription.Keys(p256dh, auth);
@@ -90,8 +90,9 @@ public class PushService {
 
             Notification notification = new Notification(sub, payload == null ? "" : payload);
             var resp = webPush.send(notification);
+            Integer code = null;
             if (resp != null) {
-                int code = resp.getStatusLine().getStatusCode();
+                code = resp.getStatusLine().getStatusCode();
                 if (code == 404 || code == 410) {
                     // subscription is gone; clean up
                     try { repo.deleteById(s.getId()); } catch (Exception ignored) {}
@@ -99,26 +100,38 @@ public class PushService {
                 }
             }
             System.out.println("[PushService] Sent web-push to subscription id="+s.getId());
+            return code == null ? 0 : code;
         } catch (Exception e){
             System.out.println("[PushService] Error sending push notification to subscription id="+s.getId()+" : " + e.getMessage());
+            return -1;
         }
+    }
+
+    /** Compatibility wrapper without status reporting */
+    public void sendNotification(PushSubscription s, String payload){
+        sendNotificationWithStatus(s, payload);
     }
 
     /**
      * Structured payload variant: send JSON with title/body/url so the service worker can render a richer notification.
      */
-    public void sendNotification(PushSubscription s, String title, String body, String url){
+    public Integer sendNotificationStatus(PushSubscription s, String title, String body, String url){
         try {
             var obj = new java.util.LinkedHashMap<String, Object>();
             if (title != null) obj.put("title", title);
             if (body != null) obj.put("body", body);
             if (url != null && !url.isBlank()) obj.put("url", url);
             String json = mapper.writeValueAsString(obj);
-            sendNotification(s, json);
+            return sendNotificationWithStatus(s, json);
         } catch (Exception e){
             // fallback to text
-            sendNotification(s, (title == null ? "" : title) + "\n" + (body == null ? "" : body));
+            return sendNotificationWithStatus(s, (title == null ? "" : title) + "\n" + (body == null ? "" : body));
         }
+    }
+
+    /** Compatibility wrapper for previous callers */
+    public void sendNotification(PushSubscription s, String title, String body, String url){
+        sendNotificationStatus(s, title, body, url);
     }
 
     public String getVapidPublic(){

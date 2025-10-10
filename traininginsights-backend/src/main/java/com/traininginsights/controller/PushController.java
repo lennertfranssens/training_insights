@@ -70,20 +70,28 @@ public class PushController {
         List<PushSubscription> subs = repo.findByUser(u);
 
         int sent = 0;
+        List<Map<String,Object>> results = new java.util.ArrayList<>();
         for (PushSubscription s : subs){
             try {
-                pushService.sendNotification(
-                        s,
-                        "TrainingInsights test",
-                        "If you see this, push notifications are working on this device.",
-                        "/"
+                Integer code = pushService.sendNotificationStatus(
+                    s,
+                    "TrainingInsights test",
+                    "If you see this, push notifications are working on this device.",
+                    "/"
                 );
-                sent++;
+                boolean ok = (code == null) || (code >= 200 && code < 300) || code == 0; // null means log-only
+                if (ok) sent++;
+                var item = new java.util.LinkedHashMap<String, Object>();
+                item.put("id", s.getId());
+                item.put("endpoint", s.getEndpoint());
+                item.put("status", code);
+                results.add(item);
             } catch (Exception ignored) {}
         }
         Map<String, Object> res = new HashMap<>();
         res.put("subscriptions", subs.size());
         res.put("sent", sent);
+        res.put("results", results);
         return res;
     }
 
@@ -95,24 +103,27 @@ public class PushController {
         User u = userRepository.findByEmailIgnoreCase(email).orElseThrow();
         var opt = repo.findById(id);
         int sent = 0;
+        Integer status = null;
         if (opt.isPresent()){
             PushSubscription s = opt.get();
             // ensure ownership
             if (s.getUser() != null && s.getUser().getId().equals(u.getId())){
                 try {
-                    pushService.sendNotification(
-                            s,
-                            "TrainingInsights test",
-                            "Test sent to this specific device.",
-                            "/"
+                    status = pushService.sendNotificationStatus(
+                        s,
+                        "TrainingInsights test",
+                        "Test sent to this specific device.",
+                        "/"
                     );
-                    sent = 1;
+                    boolean ok = (status == null) || (status >= 200 && status < 300) || status == 0;
+                    sent = ok ? 1 : 0;
                 } catch (Exception ignored) {}
             }
         }
         Map<String, Object> res = new HashMap<>();
         res.put("sent", sent);
         res.put("id", id);
+        res.put("status", status);
         return res;
     }
 }

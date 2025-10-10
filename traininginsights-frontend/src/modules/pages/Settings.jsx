@@ -67,12 +67,15 @@ export default function Settings(){
     return outputArray;
   }
 
-  function arrayBufferToBase64(buffer){
+  function arrayBufferToBase64Url(buffer){
     if (!buffer) return ''
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i=0;i<bytes.byteLength;i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary);
+    const bytes = new Uint8Array(buffer)
+    let binary = ''
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
+    // Standard base64
+    let b64 = btoa(binary)
+    // Convert to base64url (RFC 7515): replace +/ with -_ and strip = padding
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/,'')
   }
 
   const { showSnackbar } = useSnackbar()
@@ -102,7 +105,7 @@ export default function Settings(){
       // Reuse existing sub if present to avoid quota/duplicate issues
       let sub = await reg.pushManager.getSubscription()
       if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: converted })
-      await api.post('/api/push/subscribe', { endpoint: sub.endpoint, keys: { p256dh: arrayBufferToBase64(sub.getKey('p256dh')), auth: arrayBufferToBase64(sub.getKey('auth')) } })
+  await api.post('/api/push/subscribe', { endpoint: sub.endpoint, keys: { p256dh: arrayBufferToBase64Url(sub.getKey('p256dh')), auth: arrayBufferToBase64Url(sub.getKey('auth')) } })
       showSnackbar('Push enabled')
       await loadSubscriptions()
     } catch(e){
@@ -173,7 +176,7 @@ export default function Settings(){
                         </Box>
                       </Box>
                       <div>
-                        <Button size="small" onClick={async ()=>{ try { const { data } = await api.post(`/api/push/test/${s.id}`); showSnackbar(data.sent===1? 'Test sent to this device' : 'Failed to send to this device', { duration: 5000 }); } catch(e){ showSnackbar('Failed to send test', { duration: 5000 }) } }} sx={{ mr:1 }}>Test</Button>
+                        <Button size="small" onClick={async ()=>{ try { const { data } = await api.post(`/api/push/test/${s.id}`); const status = data?.status; const ok = data?.sent===1; const msg = ok ? `Test sent (status ${status ?? 'log-only'})` : `Failed (status ${status ?? 'unknown'})`; showSnackbar(msg, { duration: 6000 }); } catch(e){ showSnackbar('Failed to send test', { duration: 5000 }) } }} sx={{ mr:1 }}>Test</Button>
                         <Button size="small" onClick={()=>unsubscribe(s.id)}>Unsubscribe</Button>
                       </div>
                     </Box>

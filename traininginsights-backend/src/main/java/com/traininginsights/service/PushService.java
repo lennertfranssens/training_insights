@@ -103,6 +103,30 @@ public class PushService {
                     try { repo.deleteById(s.getId()); } catch (Exception ignored) {}
                     System.out.println("[PushService] Removed expired subscription id="+s.getId()+" status="+code+" host="+host);
                 }
+                // For non-2xx responses, log reason, selected headers, and a truncated body for diagnostics
+                if (code >= 400) {
+                    String reason = null, wwwAuth = null, retryAfter = null, contentType = null;
+                    try { reason = resp.getStatusLine().getReasonPhrase(); } catch (Exception ignored){}
+                    try {
+                        for (org.apache.http.Header h : resp.getAllHeaders()){
+                            String name = h.getName();
+                            if (name == null) continue;
+                            if ("www-authenticate".equalsIgnoreCase(name)) wwwAuth = h.getValue();
+                            else if ("retry-after".equalsIgnoreCase(name)) retryAfter = h.getValue();
+                            else if ("content-type".equalsIgnoreCase(name)) contentType = h.getValue();
+                        }
+                    } catch (Exception ignored){}
+                    String bodyStr = null;
+                    try {
+                        org.apache.http.HttpEntity entity = resp.getEntity();
+                        if (entity != null) {
+                            bodyStr = org.apache.http.util.EntityUtils.toString(entity);
+                            if (bodyStr != null && bodyStr.length() > 500) bodyStr = bodyStr.substring(0,500) + "...";
+                        }
+                    } catch (Exception ignored){}
+                    System.out.println("[PushService] Error response host="+host+" status="+code+" reason="+(reason==null?"":reason)+" www-authenticate="+(wwwAuth==null?"":wwwAuth)+" retry-after="+(retryAfter==null?"":retryAfter)+" content-type="+(contentType==null?"":contentType));
+                    if (bodyStr != null && !bodyStr.isBlank()) System.out.println("[PushService] Error body: "+bodyStr);
+                }
             }
             System.out.println("[PushService] Push result subId="+s.getId()+" host="+host+" status="+(code==null?"(none)":code));
             return code == null ? 0 : code;

@@ -125,6 +125,27 @@ export default function Settings(){
     try{ await api.post(`/api/push/unsubscribe/${id}`); await loadSubscriptions(); showSnackbar('Unsubscribed') } catch(e){ showSnackbar('Failed to unsubscribe', { duration: 5000 }) }
   }
 
+  const resubscribeThisDevice = async () => {
+    try {
+      if (!('serviceWorker' in navigator)) { showSnackbar('No service worker support', { duration: 5000 }); return }
+      const reg = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+      await navigator.serviceWorker.ready
+      // Unsubscribe old sub (if present)
+      const old = await reg.pushManager.getSubscription()
+      if (old) { try { await old.unsubscribe() } catch(e){} }
+      // Subscribe anew with current VAPID
+      const { data: vapid } = await api.get('/api/push/vapid-public')
+      const converted = await urlBase64ToUint8Array(vapid)
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: converted })
+      await api.post('/api/push/subscribe', { endpoint: sub.endpoint, keys: { p256dh: arrayBufferToBase64Url(sub.getKey('p256dh')), auth: arrayBufferToBase64Url(sub.getKey('auth')) } })
+      await loadSubscriptions()
+      showSnackbar('Re-subscribed this device')
+    } catch (e){
+      console.error(e)
+      showSnackbar('Failed to re-subscribe: ' + (e?.message || 'unknown error'), { duration: 7000 })
+    }
+  }
+
   useEffect(()=>{ loadSubscriptions() }, [])
 
   if (loading) return <Typography>Loading...</Typography>
@@ -147,6 +168,7 @@ export default function Settings(){
           <Typography variant="subtitle1" sx={{ mt:2 }}>Browser push notifications</Typography>
           <div style={{ marginTop:8, marginBottom:8 }}>
             <Button variant="outlined" onClick={enablePush} sx={{ mr:1 }}>Enable notifications</Button>
+            <Button variant="outlined" onClick={resubscribeThisDevice} sx={{ mr:1 }}>Re-subscribe this device</Button>
             <Button variant="outlined" onClick={async ()=>{ try { const { data } = await api.post('/api/push/test'); showSnackbar(`Test push sent to ${data.sent||0}/${data.subscriptions||0} subscriptions`, { duration: 6000 }); await loadSubscriptions(); } catch(e){ showSnackbar('Failed to send test push', { duration: 6000 }) } }} sx={{ mr:1 }}>Send test notification</Button>
             <Button variant="outlined" onClick={loadSubscriptions}>Refresh subscriptions</Button>
           </div>

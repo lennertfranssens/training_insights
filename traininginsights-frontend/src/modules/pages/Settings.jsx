@@ -87,18 +87,35 @@ export default function Settings(){
       return
     }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) { showSnackbar('Push not supported in this browser', { duration: 5000 }); return }
+    if (!window.isSecureContext) { showSnackbar('Push requires HTTPS. Please use a secure (https://) URL.', { duration: 8000 }); return }
     try{
-      const reg = await navigator.serviceWorker.register('/service-worker.js')
-      // ask permission explicitly (this will show the browser prompt if not decided or allow re-enable path)
-      const permission = await Notification.requestPermission()
-      if (permission !== 'granted') { showSnackbar('Push permission not granted', { duration: 6000 }); return }
+      // Request permission first to keep it within the user gesture on Safari
+      if (Notification.permission !== 'granted') {
+        const permission = await Notification.requestPermission()
+        if (permission !== 'granted') { showSnackbar('Push permission not granted', { duration: 6000 }); return }
+      }
+      const reg = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+      // Ensure activated SW (Safari sometimes needs this before subscribe)
+      await navigator.serviceWorker.ready
       const { data: vapid } = await api.get('/api/push/vapid-public')
       const converted = await urlBase64ToUint8Array(vapid)
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: converted })
+      // Reuse existing sub if present to avoid quota/duplicate issues
+      let sub = await reg.pushManager.getSubscription()
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: converted })
       await api.post('/api/push/subscribe', { endpoint: sub.endpoint, keys: { p256dh: arrayBufferToBase64(sub.getKey('p256dh')), auth: arrayBufferToBase64(sub.getKey('auth')) } })
       showSnackbar('Push enabled')
       await loadSubscriptions()
-    } catch(e){ console.error(e); showSnackbar('Failed to enable push: ' + (e?.response?.data?.message || e?.message || e), { duration: 8000 }) }
+    } catch(e){
+      console.error(e)
+      const msg = e?.message || ''
+      if (msg.includes('NotAllowedError')) {
+        showSnackbar('Notifications are blocked. On iOS, check Settings > Notifications > TrainingInsights.', { duration: 9000 })
+      } else if (msg.includes('AbortError') || msg.includes('NotSupportedError')) {
+        showSnackbar('Push not available. Ensure PWA is opened from Home Screen (iOS 16.4+).', { duration: 9000 })
+      } else {
+        showSnackbar('Failed to enable push: ' + (e?.response?.data?.message || msg || e), { duration: 8000 })
+      }
+    }
   }
 
   const unsubscribe = async (id) => {
@@ -127,6 +144,7 @@ export default function Settings(){
           <Typography variant="subtitle1" sx={{ mt:2 }}>Browser push notifications</Typography>
           <div style={{ marginTop:8, marginBottom:8 }}>
             <Button variant="outlined" onClick={enablePush} sx={{ mr:1 }}>Enable notifications</Button>
+            <Button variant="outlined" onClick={async ()=>{ try { const { data } = await api.post('/api/push/test'); showSnackbar(`Test push sent to ${data.sent||0}/${data.subscriptions||0} subscriptions`, { duration: 6000 }); await loadSubscriptions(); } catch(e){ showSnackbar('Failed to send test push', { duration: 6000 }) } }} sx={{ mr:1 }}>Send test notification</Button>
             <Button variant="outlined" onClick={loadSubscriptions}>Refresh subscriptions</Button>
           </div>
           {typeof Notification !== 'undefined' && Notification.permission === 'denied' && (

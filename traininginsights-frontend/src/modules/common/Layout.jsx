@@ -7,6 +7,7 @@ import UnreadBadge from './UnreadBadge'
 import { getNavItems } from './RoleNav'
 import { useAuth } from '../auth/AuthContext'
 import { useThemeMode } from './ThemeContext'
+import IosInstallBanner from './IosInstallBanner'
 export default function Layout(){
   const { auth, signout } = useAuth()
   const navigate = useNavigate()
@@ -82,6 +83,7 @@ export default function Layout(){
           </List>
         </Box>
       </Drawer>
+      <IosInstallBanner />
       <Box sx={{ p: { xs: 1.5, sm: 2 }, overflowX: 'hidden' }}><Outlet key={loc.key} /></Box>
     </Box>
   )

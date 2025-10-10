@@ -82,16 +82,32 @@ export default function AthleteDashboard({ initialSection }){
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
     if (isIOS && !isStandalone) { showSnackbar('On iOS, first Add to Home Screen, then open the app and enable notifications there.', { duration: 8000 }); return }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) { showSnackbar('Push not supported in this browser', { duration: 5000 }); return }
+    if (!window.isSecureContext) { showSnackbar('Push requires HTTPS. Please use a secure (https://) URL.', { duration: 8000 }); return }
     try{
-      const reg = await navigator.serviceWorker.register('/service-worker.js')
-      const permission = await Notification.requestPermission()
-      if (permission !== 'granted') { showSnackbar('Push permission not granted', { duration: 6000 }); return }
+      // Ask for permission first within the gesture
+      if (Notification.permission !== 'granted') {
+        const permission = await Notification.requestPermission()
+        if (permission !== 'granted') { showSnackbar('Push permission not granted', { duration: 6000 }); return }
+      }
+      const reg = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+      await navigator.serviceWorker.ready
       const { data: vapid } = await api.get('/api/push/vapid-public')
       const converted = await urlBase64ToUint8Array(vapid)
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: converted })
+      let sub = await reg.pushManager.getSubscription()
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: converted })
       await api.post('/api/push/subscribe', { endpoint: sub.endpoint, keys: { p256dh: arrayBufferToBase64(sub.getKey('p256dh')), auth: arrayBufferToBase64(sub.getKey('auth')) } })
       showSnackbar('Push enabled')
-    } catch(e){ console.error(e); showSnackbar('Failed to enable push: ' + (e?.response?.data?.message || e?.message || e), { duration: 8000 }) }
+    } catch(e){
+      console.error(e)
+      const msg = e?.message || ''
+      if (msg.includes('NotAllowedError')) {
+        showSnackbar('Notifications are blocked. On iOS, check Settings > Notifications > TrainingInsights.', { duration: 9000 })
+      } else if (msg.includes('AbortError') || msg.includes('NotSupportedError')) {
+        showSnackbar('Push not available. Ensure PWA is opened from Home Screen (iOS 16.4+).', { duration: 9000 })
+      } else {
+        showSnackbar('Failed to enable push: ' + (e?.response?.data?.message || msg || e), { duration: 8000 })
+      }
+    }
   }
 
   function urlBase64ToUint8Array(base64String) {

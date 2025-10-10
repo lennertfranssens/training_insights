@@ -10,7 +10,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/push")
@@ -57,4 +59,31 @@ public class PushController {
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/my")
     public List<PushSubscription> my(){ String email = SecurityContextHolder.getContext().getAuthentication().getName(); var u = userRepository.findByEmailIgnoreCase(email).orElseThrow(); return repo.findByUser(u); }
+
+    // Simple test endpoint to validate push end-to-end for the current user.
+    // Sends a lightweight notification to all of the user's subscriptions.
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/test")
+    public Map<String, Object> testPush(){
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        User u = userRepository.findByEmailIgnoreCase(email).orElseThrow();
+        List<PushSubscription> subs = repo.findByUser(u);
+
+        int sent = 0;
+        for (PushSubscription s : subs){
+            try {
+                pushService.sendNotification(
+                        s,
+                        "TrainingInsights test",
+                        "If you see this, push notifications are working on this device.",
+                        "/"
+                );
+                sent++;
+            } catch (Exception ignored) {}
+        }
+        Map<String, Object> res = new HashMap<>();
+        res.put("subscriptions", subs.size());
+        res.put("sent", sent);
+        return res;
+    }
 }

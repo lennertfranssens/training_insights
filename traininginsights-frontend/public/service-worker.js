@@ -1,3 +1,13 @@
+self.addEventListener('install', event => {
+  // Become the active worker immediately
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', event => {
+  // Control all open clients without reload
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('push', function(event) {
   let title = 'TrainingInsights';
   let body = 'You have a notification';
@@ -35,13 +45,9 @@ self.addEventListener('push', function(event) {
 
   const options = {
     body,
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
-    requireInteraction: true, // keep visible until user interacts (when possible)
     renotify: true,
     tag: 'traininginsights-general',
     timestamp: Date.now(),
-    silent: false,
     data: { url: (event.notificationDataUrl || '/dashboard/notifications') }
   };
   event.waitUntil(self.registration.showNotification(title, options));

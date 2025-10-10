@@ -77,6 +77,10 @@ export default function AthleteDashboard({ initialSection }){
 
   // One-click enable push for athletes (don't auto-subscribe on page load)
   const enablePush = async () => {
+    const ua = navigator.userAgent || ''
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
+    if (isIOS && !isStandalone) { showSnackbar('On iOS, first Add to Home Screen, then open the app and enable notifications there.', { duration: 8000 }); return }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) { showSnackbar('Push not supported in this browser', { duration: 5000 }); return }
     try{
       const reg = await navigator.serviceWorker.register('/service-worker.js')

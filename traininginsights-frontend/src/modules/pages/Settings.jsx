@@ -78,6 +78,14 @@ export default function Settings(){
   const { showSnackbar } = useSnackbar()
 
   const enablePush = async () => {
+    // iOS requires installing to Home Screen and only shows permission there (iOS 16.4+)
+    const ua = navigator.userAgent || ''
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
+    if (isIOS && !isStandalone) {
+      showSnackbar('On iOS, first Add to Home Screen, then open the app and enable notifications there.', { duration: 8000 })
+      return
+    }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) { showSnackbar('Push not supported in this browser', { duration: 5000 }); return }
     try{
       const reg = await navigator.serviceWorker.register('/service-worker.js')

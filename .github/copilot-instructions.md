@@ -1,53 +1,43 @@
 ## Training Insights – Agent Quickstart
-Concise, project-specific rules so AI changes stay aligned. Cite files when giving guidance.
+Concise, repo-specific rules so your changes align. Cite files/paths when giving guidance.
 
-### 1. Architecture
+### 1) Architecture & Auth
 - Monorepo: Spring Boot backend (`traininginsights-backend`) + React/Vite frontend (`traininginsights-frontend`).
-- All API endpoints live under `/api/*`; frontend always calls relative like `/api/xyz` (never hardcode hostnames).
-- Auth: stateless JWT (HS256) minted in `AuthController` (`/api/auth/signin`). Roles: `ROLE_ATHLETE|ROLE_TRAINER|ROLE_ADMIN|ROLE_SUPERADMIN`.
-- Public self‑signup removed; users provisioned by privileged roles. Inactive users must activate before signin succeeds.
+- API lives under `/api/*`; frontend calls must be relative (e.g. `api.get('/api/metrics/dashboard')`). Never hardcode hosts.
+- JWT auth (HS256) minted in `AuthController` (`/api/auth/signin`); roles: `ROLE_ATHLETE|ROLE_TRAINER|ROLE_ADMIN|ROLE_SUPERADMIN`. Claims include `roles` array (see `AuthController.java`).
+- Public self‑signup is removed; users are provisioned by privileged roles. Inactive users must activate before signin.
 
-### 2. Run / Build
-- Docker compose (root `docker-compose.yml`) spins up Postgres + backend:8080 + frontend:3000 (Swagger at `/swagger-ui.html`).
-- Local dev: backend `mvn spring-boot:run`; frontend `npm install && npm run dev` (proxy handles `/api`).
-- Key env vars: `DB_*`, `TI_JWT_SECRET` (raw or Base64), `APP_UPLOADS_DIR` (persist volume), `VAPID_PUBLIC/PRIVATE` (push), SMTP fields on Club entities (not global env).
+### 2) Run, Ports, Creds
+- Docker Compose (root `docker-compose.yml`) starts Postgres + backend:8080 + frontend:3000; Swagger at `/swagger-ui.html`.
+- Local dev: backend `mvn spring-boot:run`; frontend `npm install && npm run dev` (Vite dev on 5173; proxy `/api` → 8080 via `vite.config.js`).
+- Default superadmin (dev/demo): `superadmin@ti.local` / `superadmin` (see root `README.md`).
+- Key env: `DB_*`, `TI_JWT_SECRET` (raw/Base64), `APP_UPLOADS_DIR` (persist), `VAPID_PUBLIC/PRIVATE` (push). SMTP lives on Club entities, not global env.
 
-### 3. Backend Conventions
-- Security config: `SecurityConfig.java` permits only `/api/auth/**`, docs, health; everything else JWT. Use method security (`@PreAuthorize`) for role gating where needed.
-- Token flows: activation + password reset via time‑limited tokens in `AuthController` (`/activate`, `/password-reset/*`, `/resend-activation`). Always return 200 for reset request to avoid enumeration.
-- Data export/import: backup endpoints (see UI + `AdminBackupService`) produce JSON or ZIP (includes `uploads/`). Preserve IDs when importing.
-- Push & email: `PushService` uses VAPID keys; emails sent per Club SMTP; notification channel (in‑app/email/both) chosen at send time.
-- Migrations: Flyway in `src/main/resources/db/migration`; Hibernate `ddl-auto=update` only for dev convenience.
+### 3) Backend patterns
+- Security: `SecurityConfig.java` permits `/api/auth/**`, docs, health; everything else requires JWT. Use method security (`@PreAuthorize('hasRole("SUPERADMIN")'...)`).
+- Auth flows in `AuthController.java`: `/activate`, `/password-reset/request`, `/password-reset/confirm`, `/resend-activation` (reset request always returns 200 to avoid enumeration).
+- Consistent error shape via `RestExceptionHandler.java` (map with `status|error|message`).
+- Backups: `AdminBackupController.java` (`/api/admin/backup/*`) uses `AdminBackupService`. Export JSON or ZIP (ZIP includes `uploads/`). Preserve IDs when importing.
+- Migrations: Flyway SQL under `src/main/resources/db/migration`. `ddl-auto=update` is dev-only convenience.
 
-### 4. Frontend Conventions
-- API client: `src/modules/api/client.js` injects `Authorization` header from `localStorage.ti_auth.token`; clears & redirects on 401.
-- Protected routing: `ProtectedRoute.jsx` enforces role presence; dashboards chosen in `App.jsx` based on roles.
-- Persisted UI prefs/localStorage keys: `ti_auth`, `ti_theme_mode` (system/light/dark), `ti_metrics_club`, others may follow same `ti_*` pattern.
-- Date & pickers: use helpers in `common/dateUtils.js` + `BelgianPickers.jsx` (Belgian `dd/MM/yyyy`, 24h time).
-- Theme: `ThemeContext.jsx` resolves system mode dynamically; prefer using its provider instead of manual MUI theme instantiation.
+### 4) Frontend patterns
+- API client: `src/modules/api/client.js` adds `Authorization: Bearer <token>` from `localStorage.ti_auth`, and clears + redirects to `/login` on 401.
+- Protected routing: `src/modules/common/ProtectedRoute.jsx`; dashboards are role-aware in `src/App.jsx`.
+- Persisted prefs: `ti_auth`, `ti_theme_mode` (system/light/dark), `ti_metrics_club`.
+- Date/time: Belgian format via `src/modules/common/dateUtils.js` + `BelgianPickers.jsx`. Theme provider in `ThemeContext.jsx` resolves system mode.
 
-### 5. Adding / Modifying Endpoints
-- Place controller under `com.traininginsights.controller`, annotate `@RestController @RequestMapping("/api/<area>")`.
-- Secure by default (no extra permitAll unless absolutely required). Return consistent error shapes via exceptions handled in `RestExceptionHandler`.
-- Include role array claim (`roles`) if issuing custom tokens (mirror `AuthController`).
+### 5) Notifications, Emails, Uploads
+- Push via VAPID keys; email via Club-scoped SMTP. Channel for send (in‑app/email/both) chosen at send time. Bulk emails use BCC; sender receives a summary when email channel used.
+- Uploads under `APP_UPLOADS_DIR` must be volume‑persisted. Paths are validated to stay within base dir—use existing services instead of building absolute paths.
 
-### 6. Notifications & Emails
-- Bulk club/group emails use BCC (privacy/perf). If Club lacks SMTP config, silently fallback to in‑app/push only.
-- Summary email (to sender) lists counts + truncated body when email channel used.
+### 6) Adding endpoints
+- Controllers under `com.traininginsights.controller` with `@RestController @RequestMapping("/api/<area>")`. Secure by default; don’t `permitAll` unless required.
+- If issuing custom tokens, include `roles` claim like in `AuthController`.
 
-### 7. Backups & Uploads
-- Backups: JSON (data only) or ZIP (data + `uploads/`). Ensure `APP_UPLOADS_DIR` volume mounted so restores are meaningful.
-- Upload paths validated to stay under base uploads dir; do not construct absolute paths manually—use existing services.
+Common gotchas
+- Missing `/api` prefix → 404. Hardcoded URLs break Docker/Nginx; keep them relative. Don’t leak details on activation/reset errors.
 
-### 8. Common Pitfalls
-- Forgetting `/api` prefix -> 404 (frontend proxy expects it).
-- Hardcoding full URLs -> breaks Docker/Nginx setup; always relative.
-- Not persisting uploads volume -> attachments vanish on container rebuild.
-- Returning sensitive info on password reset/activation errors; keep messages generic.
-
-### 9. Reference Files
-Backend: `SecurityConfig.java`, `AuthController.java`, `AdminBackupService.java`, `JwtService.java`.
-Frontend: `src/modules/api/client.js`, `ThemeContext.jsx`, `MetricsDashboard.jsx`, `ProtectedRoute.jsx`.
-Infra: root `docker-compose.yml`, frontend `nginx/nginx.conf`.
-
-Keep answers concrete: cite paths, show diff-style changes, and follow these patterns instead of introducing new libraries unless justified.
+Reference
+- Backend: `SecurityConfig.java`, `AuthController.java`, `AdminBackupController.java`/`AdminBackupService.java`, `JwtService.java`, `RestExceptionHandler.java`.
+- Frontend: `src/modules/api/client.js`, `src/modules/common/ProtectedRoute.jsx`, `src/modules/dashboards/MetricsDashboard.jsx`, `src/modules/common/ThemeContext.jsx`.
+- Infra: root `docker-compose.yml`, frontend `nginx/nginx.conf`, `traininginsights-frontend/vite.config.js`.

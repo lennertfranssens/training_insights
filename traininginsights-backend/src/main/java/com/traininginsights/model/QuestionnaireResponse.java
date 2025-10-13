@@ -27,7 +27,7 @@ public class QuestionnaireResponse {
 
     private Instant submittedAt;
 
-    @Lob
+    // Store JSON as standard TEXT (avoid PostgreSQL Large Object API triggered by @Lob on some drivers)
     @Column(columnDefinition = "TEXT")
     private String responses; // JSON payload
 
